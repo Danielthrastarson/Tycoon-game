@@ -18,13 +18,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Unit and conservation tests
+      - name: Test both experiments
         run: cargo test --lib
-      - name: Compile browser binary
-        run: cargo build --release --bin genesis --target wasm32-unknown-unknown
-      - name: Run headless conservation experiment
+      - name: Test original conservation
         run: cargo run --release --bin lab -- 400
-
+      - name: Compile both browser games
+        run: |
+          cargo build --release --bin invention --target wasm32-unknown-unknown
+          cargo build --release --bin genesis --target wasm32-unknown-unknown
   deploy:
     needs: verify
     runs-on: ubuntu-latest
@@ -36,13 +37,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Build browser game
-        run: cargo build --release --bin genesis --target wasm32-unknown-unknown
+      - name: Compile both games
+        run: |
+          cargo build --release --bin invention --target wasm32-unknown-unknown
+          cargo build --release --bin genesis --target wasm32-unknown-unknown
       - name: Stage website
         run: |
-          mkdir -p dist
-          cp web/index.html web/manifest.webmanifest dist/
-          cp target/wasm32-unknown-unknown/release/genesis.wasm dist/game.wasm
+          mkdir -p dist/scripts
+          cp web/index.html web/universe.html web/manifest.webmanifest dist/
+          cp web/scripts/*.js dist/scripts/
+          cp target/wasm32-unknown-unknown/release/invention.wasm dist/game.wasm
+          cp target/wasm32-unknown-unknown/release/genesis.wasm dist/universe.wasm
           touch dist/.nojekyll
       - uses: actions/configure-pages@v5
         with:
