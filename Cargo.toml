@@ -1,7 +1,13 @@
 [package]
-name = "macroquad_phone_starter"
+name = "genesis"
 version = "0.1.0"
 edition = "2021"
+description = "One-physics, multiscale artificial universe"
 
 [dependencies]
 macroquad = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
