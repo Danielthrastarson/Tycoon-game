@@ -138,7 +138,6 @@ async fn main() {
         let sh = screen_height();
         let controls_top = sh - 216.0;
         let viewport = Rect::new(9.0, 96.0, sw - 18.0, (controls_top - 140.0).max(80.0));
-        let initial_source = view_range(center, zoom, viewport);
 
         if playing {
             accumulator += get_frame_time().min(0.12);
