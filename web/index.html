@@ -1,20 +1,23 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <meta name="theme-color" content="#0c1420">
-  <meta name="mobile-web-app-capable" content="yes">
-  <title>Genesis — Artificial Universe</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <style>
-    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#0c1420; touch-action:none; }
-    canvas { display:block; width:100%; height:100%; outline:none; touch-action:none; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b121e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Genesis — Invention Lab</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+html,body { margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b121e;touch-action:none; }
+canvas { width:100%;height:100%;display:block;outline:none;touch-action:none; }
+</style>
 </head>
 <body>
-  <canvas id="glcanvas" tabindex="1"></canvas>
-  <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
-  <script>load("game.wasm");</script>
+<canvas id="glcanvas" tabindex="1"></canvas>
+<script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+<script src="scripts/sapp_jsutils.js"></script>
+<script src="scripts/quad-storage.js"></script>
+<script>load("game.wasm");</script>
 </body>
 </html>

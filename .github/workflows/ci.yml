@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [genesis-v0-1]
+    branches: [genesis-invention-lab-v02]
 permissions:
   contents: read
 jobs:
@@ -14,9 +14,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Test simulation invariants
+      - name: Test physics and invention rules
         run: cargo test --lib
-      - name: Run headless universe
+      - name: Audit original voxel universe
         run: cargo run --release --bin lab -- 400
-      - name: Compile browser game
-        run: cargo build --release --bin genesis --target wasm32-unknown-unknown
+      - name: Compile both phone browsers
+        run: |
+          cargo build --release --bin genesis --target wasm32-unknown-unknown
+          cargo build --release --bin invention --target wasm32-unknown-unknown

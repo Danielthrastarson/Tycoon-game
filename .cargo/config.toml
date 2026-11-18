@@ -1,0 +1,4 @@
+# Macroquad and quad-storage import WebAssembly functions supplied by browser JS plugins.
+# Rust 2026 toolchains no longer implicitly allow these undefined import symbols.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--allow-undefined"]
