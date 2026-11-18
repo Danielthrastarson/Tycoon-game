@@ -1,0 +1,22 @@
+name: Genesis — Pull Request Verification
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [genesis-v0-1]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Test simulation invariants
+        run: cargo test --lib
+      - name: Run headless universe
+        run: cargo run --release --bin lab -- 400
+      - name: Compile browser game
+        run: cargo build --release --bin genesis --target wasm32-unknown-unknown

@@ -1,4 +1,4 @@
-name: Build and deploy Pocket Kingdom
+name: Genesis — Build and Deploy
 on:
   push:
     branches: [main]
@@ -11,7 +11,22 @@ concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Unit and conservation tests
+        run: cargo test --lib
+      - name: Compile browser binary
+        run: cargo build --release --bin genesis --target wasm32-unknown-unknown
+      - name: Run headless conservation experiment
+        run: cargo run --release --bin lab -- 400
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -21,13 +36,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Build WASM
-        run: cargo build --release --target wasm32-unknown-unknown
+      - name: Build browser game
+        run: cargo build --release --bin genesis --target wasm32-unknown-unknown
       - name: Stage website
         run: |
           mkdir -p dist
           cp web/index.html web/manifest.webmanifest dist/
-          cp target/wasm32-unknown-unknown/release/macroquad_phone_starter.wasm dist/game.wasm
+          cp target/wasm32-unknown-unknown/release/genesis.wasm dist/game.wasm
           touch dist/.nojekyll
       - uses: actions/configure-pages@v5
         with:
