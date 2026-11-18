@@ -162,10 +162,10 @@ impl Universe {
     fn transfer_heat(&mut self, i: usize, j: usize) {
         let (a, b) = (self.cells[i].heat, self.cells[j].heat);
         // Move one energy unit down the gradient, avoiding numerical diffusion drift.
-        if a > b + 1 {
+        if a.saturating_sub(b) > 1 {
             self.cells[i].heat -= 1;
             self.cells[j].heat += 1;
-        } else if b > a + 1 {
+        } else if b.saturating_sub(a) > 1 {
             self.cells[j].heat -= 1;
             self.cells[i].heat += 1;
         }
