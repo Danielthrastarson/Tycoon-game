@@ -113,8 +113,9 @@ fn tap_point() -> Option<Vec2> {
 async fn main() {
     let mut seed = 1718_u64;
     let mut universe = Universe::seeded(WIDTH, HEIGHT, DEPTH, seed);
-    let baseline = universe.audit();
+    let mut baseline = universe.audit();
     let mut audit = baseline;
+    let mut last_audited_tick = 0_u64;
     let mut running = true;
     let mut speed = 4_usize;
     let mut layer = DEPTH / 2;
@@ -228,7 +229,9 @@ async fn main() {
                 Some(8) => {
                     seed = seed.wrapping_add(1);
                     universe = Universe::seeded(WIDTH, HEIGHT, DEPTH, seed);
-                    audit = universe.audit();
+                    baseline = universe.audit();
+                    audit = baseline;
+                    last_audited_tick = 0;
                     running = false;
                     inspected = None;
                     dirty = true;
@@ -261,9 +264,10 @@ async fn main() {
             dirty = false;
         }
 
-        if universe.tick % 16 == 0 && universe.tick != 0 && audit.state_hash != 0 {
+        if universe.tick.saturating_sub(last_audited_tick) >= 16 {
             // Audits are deliberately periodic, not every rendered frame.
             audit = universe.audit();
+            last_audited_tick = universe.tick;
         }
         clear_background(Color::from_rgba(12, 20, 32, 255));
         draw_text("GENESIS", 15.0, 37.0, 34.0, WHITE);
