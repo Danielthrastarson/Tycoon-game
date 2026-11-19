@@ -95,7 +95,7 @@ fn cell_from(p:Vec2,area:Rect,view:Rect)->(i16,i16) {
     (x,y)
 }
 fn sq(p:(i16,i16),area:Rect,view:Rect)->Vec2 {
-    screen(vec2(p0.0 as f32,p0.1 as f32),area,view)
+    screen(vec2(p.0 as f32,p.1 as f32),area,view)
 }
 fn terrain_color(t:Terrain)->Color {
     match t {
@@ -107,8 +107,8 @@ fn terrain_color(t:Terrain)->Color {
     }
 }
 fn interpolated(a:(i16,i16),b:(i16,i16),alpha:f32)->Vec2 {
-    vec2(a0.0 as f32,a0.1 as f32).lerp(
-        vec2(b0.0 as f32,b0.1 as f32),alpha)
+    vec2(a.0 as f32,a.1 as f32).lerp(
+        vec2(b.0 as f32,b.1 as f32),alpha)
 }
 fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     chosen:usize,hover:Option<(i16,i16)>,mode:Order,
@@ -176,7 +176,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     }
     // Physical depot markers. Supply connectivity is calculated by the
     // existing corridor model, not by painting an imaginary road on water.
-    for side in 0.0.2 {
+    for side in 0..2 {
         let p=sq(b.depots[side],area,view);
         if !area.contains(p) {continue;}
         let color=if side==0 {CYAN}else{ORANGE};
@@ -187,7 +187,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     }
     // Each squad has a legible supply indicator; colored corridor-status
     // links are not claimed to be pathfinding-geographical supply routes.
-    for i in 0.0.4 {
+    for i in 0..4 {
         let u=b.units[i];
         if u.troops==0 {continue;}
         let connected=b.connected(i);
@@ -230,7 +230,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         }
     }
 
-    for i in 0.0.4 {
+    for i in 0..4 {
         let u=b.units[i];
         if u.troops==0 {continue;}
         let pos=screen(positions[i],area,view);
@@ -392,7 +392,7 @@ async fn main() {
         } else {pinch_prev=None;}
         if active.is_empty() && suppress_tap {suppress_tap=false;}
         let (mx,my)=mouse_position();
-        let wheel=mouse_wheel()0.1;
+        let wheel=mouse_wheel().1;
         if wheel.abs()>0.001 && area.contains(vec2(mx,my)) {
             zoom_on(&mut camera,&mut zoom,(1.+wheel*0.14).max(0.75),
                 vec2(mx,my),area);
@@ -485,7 +485,7 @@ async fn main() {
                 if let Some(g)=gesture.take() {
                     if !g.dragging && g.origin.distance(p)<11. && area.contains(p) {
                         let target=cell_from(p,area,world_view(camera,zoom,area));
-                        if let Some(i)=(0.0.2).find(|&i|battle.units[i].troops>0
+                        if let Some(i)=(0..2).find(|&i|battle.units[i].troops>0
                             && battle.units[i].pos==target) {
                             chosen=i;
                             message=format!("{} selected.",
@@ -493,7 +493,7 @@ async fn main() {
                         } else if matches!(mode,Order::Move|Order::Attack) {
                             if battle.issue_player_order(chosen,mode,target) {
                                 message=format!("{} squad {} to ({},{}).",
-                                    mode.label(),chosen+1,target0.0,target0.1);
+                                    mode.label(),chosen+1,target.0,target.1);
                             } else {
                                 message="Invalid destination or squad is routing.".into();
                             }
@@ -508,7 +508,7 @@ async fn main() {
         let turn_duration=if fast {0.36_f32}else{0.72_f32};
         if running && !battle.ended {
             accumulator+=get_frame_time().min(0.12);
-            for _ in 0.0.3 {
+            for _ in 0..3 {
                 if accumulator<turn_duration || battle.ended {break;}
                 accumulator-=turn_duration;
                 previous_positions=std::array::from_fn(|i|battle.units[i].pos);
@@ -520,8 +520,8 @@ async fn main() {
                 if battle.stats[0].combat_lost>losses_before[0] {
                     let loss=battle.stats[0].combat_lost-losses_before[0];
                     floaters.push(Floater{
-                        at:vec2(battle.units[0].pos0.0 as f32,
-                            battle.units[0].pos0.1 as f32),
+                        at:vec2(battle.units[0].pos.0 as f32,
+                            battle.units[0].pos.1 as f32),
                         message:format!("-{} IN BATTLE",loss),born:get_time(),color:ORANGE
                     });
                     message=format!("Your army lost {} soldiers in combat.",loss);
@@ -529,8 +529,8 @@ async fn main() {
                 if battle.stats[1].combat_lost>losses_before[1] {
                     let loss=battle.stats[1].combat_lost-losses_before[1];
                     floaters.push(Floater{
-                        at:vec2(battle.units[2].pos0.0 as f32,
-                            battle.units[2].pos0.1 as f32),
+                        at:vec2(battle.units[2].pos.0 as f32,
+                            battle.units[2].pos.1 as f32),
                         message:format!("-{} ENEMY",loss),born:get_time(),color:GREEN
                     });
                 }
@@ -580,7 +580,7 @@ async fn main() {
             text(&primary_state(&battle,chosen),control_x,info_y+20.,
                 (sw/35.).clamp(9.,12.),WHITE);
         }
-        for i in 0.0.2 {
+        for i in 0..2 {
             let u=battle.units[i];
             let name=if i==0 {"MAIN"}else{"SCOUT"};
             button(squad_buttons[i],
