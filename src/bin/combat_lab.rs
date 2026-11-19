@@ -8,7 +8,7 @@
 //! 16 ablations x 4 scenarios x 4 tactics x 2 side assignments x 32
 //! paired seeds = 16,384 deterministic independent match evaluations.
 
-use genesis::frontier_combat::{Battle, CombatRules, Policy, Scenario};
+use genesis::frontier_combat::{Battle, CombatRules, OpponentPolicy, Policy, Scenario};
 use std::{
     collections::BTreeMap,
     env,
@@ -35,14 +35,16 @@ struct Options {
     seeds: usize,
     masks: Vec<u8>,
     phase: Phase,
+    opponent: OpponentPolicy,
     output: String,
 }
 
 fn help() -> &'static str {
     "Genesis V0.4 tactical combat laboratory\n\
-Usage: combat_lab [--seeds N] [--ablation all|full|MASK] [--phase screening|holdout] [--output FILE]\n\
+Usage: combat_lab [--seeds N] [--ablation all|full|MASK] [--opponent standard|counter] [--phase screening|holdout] [--output FILE]\n\
   --seeds      Default 32 for screening, 256 for holdout; max 2048\n\
   --ablation   all = 16 masks; full = all four enabled (mask 15); or integer 0..15\n\
+  --opponent   standard (default) or counter (tougher AI stress test)\n\
   --phase      screening uses seeds 1000..; holdout uses previously unused 900000..\n\
   --output     CSV path; defaults to results/combat_v04.csv\n\
 Every mask uses the same seeds, positions, scenario geometry, policies and sides.\n\
@@ -52,6 +54,7 @@ A draw includes unresolved timeouts. Draws score 0.5 for exploratory summaries."
 
 fn parse_options()->Result<Options,String> {
     let mut phase=Phase::Screening;
+    let mut opponent=OpponentPolicy::Standard;
     let mut explicit_seeds=None::<usize>;
     let mut masks=(0u8..16u8).collect::<Vec<_>>();
     let mut output="results/combat_v04.csv".to_string();
@@ -69,6 +72,13 @@ fn parse_options()->Result<Options,String> {
                     return Err(format!("--seeds must be between 1 and {MAX_SEEDS}"));
                 }
                 explicit_seeds=Some(n);
+            }
+            "--opponent" => {
+                opponent=match args.next().as_deref() {
+                    Some("standard")=>OpponentPolicy::Standard,
+                    Some("counter")=>OpponentPolicy::Counter,
+                    _=>return Err("--opponent must be standard or counter".into()),
+                };
             }
             "--phase" => {
                 phase=match args.next().as_deref() {
@@ -101,7 +111,7 @@ fn parse_options()->Result<Options,String> {
         Phase::Screening=>32,
         Phase::Holdout=>256,
     });
-    Ok(Options{seeds,masks,phase,output})
+    Ok(Options{seeds,masks,phase,opponent,output})
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -142,7 +152,7 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
     }
     let file=File::create(destination)?;
     let mut writer=BufWriter::new(file);
-    writeln!(writer,"phase,seed_index,seed,scenario,policy,swap,mask,terrain,supply,morale,fatigue,winner,small_win,large_win,draw,rounds,small_remaining,large_remaining,small_combat_lost,large_combat_lost,small_attrition_lost,large_attrition_lost,small_supplied_rounds,large_supplied_rounds,small_isolated_rounds,large_isolated_rounds,small_provisions_used,large_provisions_used,small_retreats,large_retreats,small_engagements,large_engagements,small_objective_rounds,large_objective_rounds,small_depot_lost,large_depot_lost,valid,run_microseconds,victory_reason,pass_hold_rounds,breakthrough_rounds,small_interdiction_rounds,large_interdiction_rounds,small_center_hold_rounds,large_center_hold_rounds")?;
+    writeln!(writer,"phase,seed_index,seed,scenario,policy,swap,mask,terrain,supply,morale,fatigue,winner,small_win,large_win,draw,rounds,small_remaining,large_remaining,small_combat_lost,large_combat_lost,small_attrition_lost,large_attrition_lost,small_supplied_rounds,large_supplied_rounds,small_isolated_rounds,large_isolated_rounds,small_provisions_used,large_provisions_used,small_retreats,large_retreats,small_engagements,large_engagements,small_objective_rounds,large_objective_rounds,small_depot_lost,large_depot_lost,valid,run_microseconds,victory_reason,pass_hold_rounds,breakthrough_rounds,small_interdiction_rounds,large_interdiction_rounds,small_center_hold_rounds,large_center_hold_rounds,opponent_policy")?;
     let mut totals=BTreeMap::<(u8,u8,u8),Aggregate>::new();
     let mut count=0u64;
     let mut total_micros=0u128;
@@ -154,7 +164,8 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
                     for &mask in &opts.masks {
                         let rules=CombatRules::from_mask(mask);
                         let started=Instant::now();
-                        let mut battle=Battle::new(seed,scenario,policy,swap,rules);
+                        let mut battle=Battle::new(seed,scenario,policy,swap,rules)
+                            .with_opponent(opts.opponent);
                         battle.play();
                         let us=started.elapsed().as_micros();
                         total_micros+=us;
@@ -183,7 +194,7 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
                         aggregate.turns+=battle.round as u64;
                         let m=battle.stats;
                         writeln!(writer,
-                            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                             opts.phase.label(),seed_index,seed,
                             scenario.label(),policy.label(),swap as u8,mask,
                             rules.terrain as u8,rules.supply as u8,
@@ -205,7 +216,8 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
                             battle.victory_reason.map_or("draw",|v|v.label()),
                             battle.pass_hold_rounds,battle.breakthrough_rounds,
                             battle.interdiction_rounds[0],battle.interdiction_rounds[1],
-                            battle.center_hold_rounds[0],battle.center_hold_rounds[1]
+                            battle.center_hold_rounds[0],battle.center_hold_rounds[1],
+                            opts.opponent.label()
                         )?;
                     }
                 }
@@ -213,8 +225,8 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
         }
     }
     writer.flush()?;
-    eprintln!("GENESIS COMBAT LAB V0.4 | phase={} | seeds={} | masks={:?} | runs={} | elapsed={:.2}s",
-        opts.phase.label(),opts.seeds,opts.masks,count,start.elapsed().as_secs_f64());
+    eprintln!("GENESIS COMBAT LAB V0.4.2 | phase={} | opponent={} | seeds={} | masks={:?} | runs={} | elapsed={:.2}s",
+        opts.phase.label(),opts.opponent.label(),opts.seeds,opts.masks,count,start.elapsed().as_secs_f64());
     eprintln!("CSV={} | avg simulation time={:.1}us | all invariants PASS",
         opts.output,total_micros as f64/count as f64);
     eprintln!("Exploratory matched-seed policy contrasts (draw scores as 0.5; NOT a confidence interval):");
