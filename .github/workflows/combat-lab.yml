@@ -7,6 +7,8 @@ on:
       - src/bin/combat_lab.rs
       - src/lib.rs
       - docs/combat_v04_protocol.md
+      - docs/combat_v042_objectives.md
+      - scripts/analyze_combat_v04.py
       - .github/workflows/combat-lab.yml
   workflow_dispatch:
 permissions:
@@ -25,7 +27,7 @@ jobs:
           cargo run --release --bin combat_lab -- \
             --seeds 32 --ablation all --phase screening \
             --output results/combat_v04_screening.csv
-          test "$(wc -l < results/combat_v04_screening.csv)" -eq 12289
+          test "$(wc -l < results/combat_v04_screening.csv)" -eq 16385
           awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v04_screening.csv
       - name: Analyze paired wins, draws and surviving troops
         run: |
@@ -36,7 +38,7 @@ jobs:
       - name: Preserve raw experimental evidence and interpretation
         uses: actions/upload-artifact@v4
         with:
-          name: genesis-v04-16-factor-screening
+          name: genesis-v042-16-factor-physical-objectives
           path: |
             results/combat_v04_screening.csv
             results/combat_v04_report.md
