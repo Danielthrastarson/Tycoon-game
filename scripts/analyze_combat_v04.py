@@ -128,8 +128,10 @@ def analyze(path: Path) -> str:
                         if first is None or second is None:
                             raise ValueError(f"missing paired policy run {scenario}/{layout}/{seed}/{swapped}")
                         diff.append(int(first["small_win"]) - int(second["small_win"]))
-                per_seed[seed] = sum(diff) / 2
+                per_seed[seed] = sum(diff) / len(diff)
             mean, low, high = clustered_ci(per_seed)
+            if not all(-1.000001 <= v <= 1.000001 for v in [mean, low, high]):
+                raise ValueError("paired win probability contrasts exceed 100 percentage points")
             lines.append(f"| {scenario} | Adaptive − Rush actual win probability | "
                          f"{mean*100:+.1f} pp | [{low*100:+.1f}, {high*100:+.1f}] pp |")
 
@@ -144,11 +146,37 @@ def analyze(path: Path) -> str:
                             if full is None or removed is None:
                                 raise ValueError(f"missing matched terrain ablation {scenario}/{layout}/{seed}")
                             effects.append(int(full["small_remaining"]) - int(removed["small_remaining"]))
-                    per_seed_surv[seed] = sum(effects) / 2
+                    per_seed_surv[seed] = sum(effects) / len(effects)
                 mean, low, high = clustered_ci(per_seed_surv)
                 lines.append(f"| {scenario} | Terrain-on − terrain-off survivors "
                              f"(Adaptive) | {mean:+.1f} | [{low:+.1f}, {high:+.1f}] |")
 
+        # One pre-specified diagnostic: the old Classic geometry has little
+        # seed variation. Show results for the three genuinely seeded layouts
+        # separately so a fixed reference map cannot inflate confidence.
+        nonclassic=[name for name in layouts if name!="classic"]
+        if nonclassic and 15 in present_masks:
+            scenario="mountain_pass"
+            per_seed_nonclassic={}
+            for seed in unique_seeds:
+                values=[]
+                for layout in nonclassic:
+                    for swapped in (0,1):
+                        a=by_key.get((phase,scenario,"adaptive",15,seed,swapped,layout))
+                        b=by_key.get((phase,scenario,"direct_rush",15,seed,swapped,layout))
+                        if a is None or b is None:
+                            raise ValueError(f"unpaired mountain sample: {seed}/{layout}/{swapped}")
+                        values.append(int(a["small_win"])-int(b["small_win"]))
+                per_seed_nonclassic[seed]=sum(values)/len(values)
+            mean,low,high=clustered_ci(per_seed_nonclassic)
+            lines.extend([
+                "",
+                "## Mountain defense — varied layouts only (excluding Classic)",
+                "",
+                f"Adaptive − DirectRush actual win probability: **{mean*100:+.1f} pp** "
+                f"(seed-clustered exploratory 95% CI [{low*100:+.1f}, {high*100:+.1f}] pp).",
+                "Classic is a useful baseline, but is largely constant across seeds.",
+            ])
         if map_shapes:
             lines.extend(["", "## Geography audit", "",
                 "| Scenario | Layout | Distinct maps across tested seeds |",
