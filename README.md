@@ -45,6 +45,19 @@ The strategy game runs as a **separate mode**, preserving the original agent-bas
 - AI: bots are subject to the same movement, recruitment, combat, supply and resource constraints.
 - Scope: population is **aggregated** per kingdom; there is no reproduction, diplomatic AI, realistic historical simulation or networked multiplayer in this prototype.
 
+### First invasion gameplay (V0.3)
+
+This is a **single vertical slice of a competitive match**, not an endgame-quality multiplayer product.
+
+- Four kingdoms now begin with a **supplied forward army and a capital garrison**; the blue player's forward army is selected at the start.
+- A **northern crossing** is marked on the map as a first tactical objective. It can be contested by army occupation; the objective marker reads the same authoritative territory state as the economy and borders.
+- The simulation exposes an auditable one-tick report for land gained, troop losses, battle contacts and capital captures. Battle and capture cues appear only when real world changes occur.
+- Actual shortest traversable paths are drawn as a moving route, not a straight line through water. Army markers appear as small formations, with strength bars and dynamic capture/combat popups.
+- The cartographic map now has four display pixels per simulation cell, with subtle coast and territorial edges. The underlying deterministic Rust grid is unchanged.
+- Regression tests verify starting army supply, a navigable path to the crossing, real territorial advancement, combat casualties, conservation of owner/terrain invariants, and existing mobile input.
+
+The goal is to make **select army → order invasion → observe front line → gain land or suffer combat losses** legible and responsive. The next iteration still requires human evaluation of strategy and match pacing.
+
 ### Smoother Frontier controls (V0.2)
 
 - **Drag the map with one finger or left mouse button** to move the camera after zooming in. A genuine tap selects an army or issues a destination order only on release; a drag never issues an order.
