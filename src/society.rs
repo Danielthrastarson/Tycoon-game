@@ -8,6 +8,8 @@
 //! Agency, resource seeking, and conditional sharing ARE explicitly built in:
 //! this is a tractable agent-based experiment, not life from particle physics.
 
+use crate::military::{GuardResult, Order, Squad};
+
 pub const SIDE: usize = 128;
 pub const INITIAL_AGENTS: usize = 100;
 pub const MAX_ENERGY: u16 = 110;
@@ -44,6 +46,8 @@ pub struct StepReport {
     pub harvested: u64,
     pub transferred: u64,
     pub communications: u64,
+    pub access_denied: u32,
+    pub access_overrun: u32,
     pub deaths: u32,
 }
 
@@ -57,6 +61,11 @@ pub struct World {
     /// Initial scores are ALL zero: no pre-assigned groups.
     pub ties: Vec<u8>,
     pub rules: Rules,
+    /// None in baseline simulation; this is a player intervention,
+    /// using existing living agents only.
+    pub squad: Option<Squad>,
+    pub cumulative_access_denied: u64,
+    pub cumulative_access_overrun: u64,
     pub cumulative_transferred: u64,
     pub cumulative_communications: u64,
     pub cumulative_harvested: u64,
@@ -72,6 +81,9 @@ impl World {
             agents: Vec::with_capacity(INITIAL_AGENTS),
             ties: vec![0; INITIAL_AGENTS * INITIAL_AGENTS],
             rules: Rules::default(),
+            squad: None,
+            cumulative_access_denied: 0,
+            cumulative_access_overrun: 0,
             cumulative_transferred: 0,
             cumulative_communications: 0,
             cumulative_harvested: 0,
@@ -166,6 +178,120 @@ impl World {
             + self.agents.iter().map(|a| a.energy as u64).sum::<u64>()
     }
 
+    /// Recruit 5–10 of the *existing* living agents closest to the tap.
+    /// All individuals remain in the same authoritative world.
+    pub fn recruit_nearest(&mut self, point: (i16, i16), requested: usize) -> usize {
+        let point = (Self::wrap(point.0), Self::wrap(point.1));
+        let mut candidates: Vec<usize> = (0..self.agents.len())
+            .filter(|&id| self.agents[id].alive).collect();
+        candidates.sort_unstable_by_key(|&id| {
+            let a = &self.agents[id];
+            (Self::distance((a.x, a.y), point), id)
+        });
+        let count = requested.clamp(5, 10).min(candidates.len());
+        if count == 0 {
+            self.squad = None;
+            return 0;
+        }
+        let mut members: Vec<_> = candidates.into_iter().take(count).collect();
+        members.sort_unstable();
+        self.squad = Some(Squad {
+            members, home: point, target: point, order: Order::Hold,
+        });
+        count
+    }
+
+    pub fn issue_order(&mut self, order: Order, target: (i16, i16)) -> bool {
+        let Some(squad) = &mut self.squad else { return false; };
+        squad.order = order;
+        if order != Order::Retreat {
+            squad.target = (Self::wrap(target.0), Self::wrap(target.1));
+        }
+        true
+    }
+
+    pub fn disband(&mut self) { self.squad = None; }
+
+    pub fn soldier_count(&self) -> usize {
+        self.squad.as_ref().map_or(0, |s| {
+            s.members.iter().filter(|&&id| self.agents[id].alive).count()
+        })
+    }
+
+    pub fn soldier(&self, id: usize) -> bool {
+        self.squad.as_ref().is_some_and(|s| s.contains(id))
+    }
+
+    /// Competing for access, not damage or magical territory ownership.
+    /// A hold order only counts guards physically near the contested food.
+    pub fn guard_result(&self, x: i16, y: i16) -> GuardResult {
+        let Some(squad) = &self.squad else { return GuardResult::Uncontested; };
+        if squad.order != Order::Hold ||
+            Self::distance((x,y), squad.target) > 4 {
+            return GuardResult::Uncontested;
+        }
+        let defenders = squad.members.iter().filter(|&&id| {
+            let a = &self.agents[id];
+            a.alive && Self::distance((a.x, a.y), (x, y)) <= 3
+        }).count();
+        if defenders == 0 { return GuardResult::Uncontested; }
+        let challengers = self.agents.iter().enumerate().filter(|(id,a)| {
+            a.alive && !squad.contains(*id) &&
+            Self::distance((a.x,a.y), (x,y)) <= 2
+        }).count();
+        if challengers == 0 { return GuardResult::Uncontested; }
+        if challengers > defenders { GuardResult::Overrun }
+        else { GuardResult::Denied }
+    }
+
+    /// Soldiers obey a spatial command but remain ordinary embodied agents:
+    /// one cell of motion per tick, no teleporting, no free supply.
+    fn move_soldier(&mut self, id: usize, report: &mut StepReport) {
+        if !self.agents[id].alive { return; }
+        let Some(squad) = &self.squad else { return; };
+        let destination = squad.destination();
+        let guarding = squad.order == Order::Hold;
+        let a = self.agents[id];
+        let mut x = a.x;
+        let mut y = a.y;
+        if Self::distance((x, y), destination) > 2 {
+            let dx = Self::direction(x, destination.0);
+            let dy = Self::direction(y, destination.1);
+            // An orderly, bounded movement step, independent of camera location.
+            if dx != 0 && (dy == 0 || self.tick % 2 == 0) {
+                x = Self::wrap(x + dx);
+            } else if dy != 0 {
+                y = Self::wrap(y + dy);
+            }
+        }
+        let moved = x != a.x || y != a.y;
+        self.agents[id].x = x;
+        self.agents[id].y = y;
+
+        // Movement and standing guard incur explicit extra energy costs,
+        // included in the authoritative energy ledger.
+        if (moved && self.tick % 2 == 0) ||
+            (guarding && !moved && self.tick % 4 == 0) {
+            if self.agents[id].energy > 0 {
+                self.agents[id].energy -= 1;
+                report.metabolic_cost += 1;
+                if self.agents[id].energy == 0 {
+                    self.agents[id].alive = false;
+                    report.deaths += 1;
+                    return;
+                }
+            }
+        }
+        // A soldier consumes local supply only, at most four units per tick.
+        // A distant army with no food may starve.
+        let cell = Self::at(x, y);
+        let headroom = MAX_ENERGY.saturating_sub(self.agents[id].energy);
+        let taken = (self.tiles[cell].stock as u16).min(4).min(headroom);
+        self.tiles[cell].stock -= taken as u8;
+        self.agents[id].energy += taken;
+        report.harvested += taken as u64;
+    }
+
     /// Local resource sensing + memory. No omniscient/global food pathfinder.
     fn see_food(&self, x: i16, y: i16) -> Option<(i16, i16)> {
         let mut best = i32::MIN;
@@ -230,7 +356,17 @@ impl World {
 
         let place = Self::at(x, y);
         let headroom = MAX_ENERGY - self.agents[index].energy;
-        let harvested = (self.tiles[place].stock as u16).min(6).min(headroom);
+        let mut harvested = (self.tiles[place].stock as u16).min(6).min(headroom);
+        if harvested > 0 {
+            match self.guard_result(x, y) {
+                GuardResult::Uncontested => {}
+                GuardResult::Denied => {
+                    harvested = 0;
+                    report.access_denied += 1;
+                }
+                GuardResult::Overrun => { report.access_overrun += 1; }
+            }
+        }
         if harvested > 0 {
             self.tiles[place].stock -= harvested as u8;
             self.agents[index].energy += harvested;
@@ -326,7 +462,11 @@ impl World {
                 report.deaths += 1;
                 continue;
             }
-            self.forage_and_move(i, &mut report);
+            if self.soldier(i) {
+                self.move_soldier(i, &mut report);
+            } else {
+                self.forage_and_move(i, &mut report);
+            }
         }
 
         for &i in &order { self.communicate(i, &mut report); }
@@ -344,6 +484,8 @@ impl World {
         if self.tick % 32 == 0 {
             for score in &mut self.ties { *score = score.saturating_sub(1); }
         }
+        self.cumulative_access_denied += report.access_denied as u64;
+        self.cumulative_access_overrun += report.access_overrun as u64;
         self.cumulative_transferred += report.transferred;
         self.cumulative_communications += report.communications;
         self.cumulative_harvested += report.harvested;
