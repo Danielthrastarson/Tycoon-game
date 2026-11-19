@@ -67,17 +67,26 @@ movement, combat and position; the outcome is never keyed to
 `Policy::Adaptive` or another tactic name.
 
 The small side's policies remain DirectRush, PassDefense,
-SupplyRaid, Adaptive. The larger opponent is an explicit baseline:
-break through the pass when uncontested, attempt a northern flank
-when stonewalled, respond physically to corridor raiders, and guard
-its depot. This is NOT human-like strategic planning, and it is still
-one opponent family.
+SupplyRaid, Adaptive. The larger opponent is evaluated under **two visible AI configurations**
+on the same seed/side/map/troop starts:
+
+- **Standard:** reacts to raiders near its depot and attempts a northern
+  flank only after eight successful pass-defense rounds.
+- **Counter:** intercepts raiders sooner, sends its own scout toward a
+  threatened pass, takes a faster southern flank, and actively contests
+  center-control objectives.
+
+Both observe only current world state, use identical movement/combat/supply
+rules, and receive no resource or damage bonuses. The stronger adversary is
+a *stress test*, not evidence of human-like reasoning.
 
 ## Screening, not holdout
 
 Run all 16 masks × 4 scenarios × 4 policies × 2 physical side swaps
-× 32 **development** seeds = **16,384 runs**, with standard CSV
-auditing and seed-clustered bootstrap comparisons. Keep the original
+× 32 **development** seeds = **16,384 runs per opponent**
+(with 16,384 additional counter-AI stress-test runs),
+using standard CSV auditing and seed-clustered bootstrap comparisons.
+Do not pool opponent configurations into a single paired policy contrast. Keep the original
 32 development seeds for direct diagnostics and retain the untouched
 holdout seed range beginning at 900000.
 
