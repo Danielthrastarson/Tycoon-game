@@ -351,15 +351,16 @@ impl Battle {
 
     fn scout_raid_destination(&self,idx:usize)->(Order,(i16,i16)) {
         let u=self.units[idx];
-        let depot=self.depots[1];
-        // A real flank: first travel on the northern edge, then turn onto
-        // the enemy supply depot. May be intercepted by a garrison.
-        if u.pos.1!=1 {
-            (Order::Move,(u.pos.0,1))
-        } else if u.pos.0!=depot.0 {
-            (Order::Move,(depot.0,1))
+        let cut=self.corridor_target();
+        // Flank along the northern rim, THEN approach the road from behind
+        // the opponent's main body. A raid is not a magical command:
+        // the scout must physically reach the vulnerable road square.
+        if u.pos.0!=cut.0 {
+            (Order::Move,(cut.0,1))
+        } else if u.pos.1!=cut.1 {
+            (Order::Attack,cut)
         } else {
-            (Order::Attack,depot)
+            (Order::Hold,cut)
         }
     }
 
@@ -416,7 +417,7 @@ impl Battle {
             // preference. This is not an omniscient win condition.
             if small_main.state.morale<42 || small_main.state.fatigue>88 {
                 self.assign(0,Order::Retreat,small_depot);
-            } else if self.scenario!=Scenario::OpenField &&
+            } else if self.scenario==Scenario::SupplyCorridor &&
                 (big_main.state.provisions==0 || big_main.troops<small_main.troops/2) {
                 self.assign(0,Order::Attack,big_main.pos);
             }
@@ -425,10 +426,21 @@ impl Battle {
         // Fixed baseline opponent: move its main body toward the central
         // fight; its smaller detachment defends the depot from nearby raiders.
         // It obeys exactly the same supply, combat, movement and morale rules.
-        if distance(big_main.pos,small_main.pos)<=1 {
+        if distance(big_main.pos,small_main.pos)<=1 && small_main.troops>0 {
             self.assign(2,Order::Attack,small_main.pos);
         } else if self.scenario==Scenario::MountainPass {
-            self.assign(2,Order::Attack,PASS);
+            // The attacker's public mission is to occupy the region BEHIND
+            // the pass; advancing only to the pass caused endless stalemates.
+            self.assign(2,Order::Attack,self.breakthrough_target());
+        } else if self.scenario==Scenario::SupplyCorridor {
+            // Physical response to road interdiction, not an omniscient
+            // change to the defender's damage, food or morale.
+            let raider=self.units[1];
+            if raider.troops>0 && distance(raider.pos,self.corridor_target())<=1 {
+                self.assign(2,Order::Attack,raider.pos);
+            } else {
+                self.assign(2,Order::Attack,small_main.pos);
+            }
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
@@ -446,6 +458,9 @@ impl Battle {
 
     fn movement(&mut self)->[bool;4] {
         let mut moved=[false;4];
+        // Use pre-movement occupancy, not loop order. Two opposing armies
+        // cannot phase through one another in the same tactical round.
+        let before=self.units;
         for (i,u) in self.units.iter_mut().enumerate() {
             if u.troops==0 {continue;}
             if u.order==Order::Hold {
@@ -456,6 +471,10 @@ impl Battle {
                 for _ in 0..steps {
                     let next=Self::move_one(u.pos,u.destination);
                     if next==u.pos {break;}
+                    if before.iter().any(|enemy|enemy.side!=u.side
+                        && enemy.troops>0 && enemy.pos==next) {
+                        break; // enemy line blocks entry; combat is adjacent
+                    }
                     u.pos=clamp_pos(next);
                     moved[i]=true;
                 }
