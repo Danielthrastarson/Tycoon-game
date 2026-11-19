@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1824">
+<title>Genesis Tactical Siege V0.4.4 — Defend the Pass</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b121d;touch-action:none}
+canvas{display:block;width:100%;height:100%;outline:none;touch-action:none}
+nav{position:fixed;right:12px;top:7px;z-index:3;font:12px system-ui,sans-serif}
+nav a{color:#c2eaff;background:#20354a;padding:6px 8px;border-radius:5px;text-decoration:none;margin-left:4px}
+#error{display:none;position:fixed;z-index:5;left:12px;right:12px;top:94px;background:#472b34;color:white;border:1px solid #e7b0a7;border-radius:8px;padding:14px;font:14px/1.6 system-ui,sans-serif}
+</style>
+</head>
+<body>
+<nav><a href="frontier.html">Kingdoms</a><a href="index.html">Emergence Lab</a></nav>
+<canvas id="glcanvas" tabindex="1" aria-label="Genesis Tactical Siege — playable map, controls and combat"></canvas>
+<div id="error" role="alert">Tactical Siege could not start. Refresh or use a browser with WebGL enabled.</div>
+<noscript>The game requires JavaScript and WebGL.</noscript>
+<script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+<script>
+function fail(msg){
+  const box=document.getElementById('error');
+  box.textContent='Tactical Siege could not start: '+String(msg);
+  box.style.display='block';
+}
+window.addEventListener('unhandledrejection',ev=>fail(ev.reason?.message||'WebAssembly failed to load'));
+window.addEventListener('error',ev=>{
+  if(/wasm|webgl|load|uncaught|script/i.test(ev.message||''))fail(ev.message)
+});
+try {
+  if(typeof load!=='function')throw Error('Graphics loader unavailable');
+  load('tactics.wasm?v=0.4.4');
+}catch(err){fail(err.message||err)}
+setTimeout(()=>{
+  const c=document.getElementById('glcanvas');
+  if(!c || c.width<100 || c.height<100)fail('Game canvas failed to initialize');
+},10000);
+</script>
+</body>
+</html>

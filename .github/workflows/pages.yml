@@ -34,6 +34,7 @@ jobs:
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
           cargo build --release --bin frontier --target wasm32-unknown-unknown
+          cargo build --release --bin tactics --target wasm32-unknown-unknown
   deploy:
     needs: verify
     runs-on: ubuntu-latest
@@ -51,15 +52,17 @@ jobs:
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
           cargo build --release --bin frontier --target wasm32-unknown-unknown
+          cargo build --release --bin tactics --target wasm32-unknown-unknown
       - name: Stage website
         run: |
           mkdir -p dist/scripts
-          cp web/index.html web/invention.html web/universe.html web/frontier.html web/manifest.webmanifest dist/
+          cp web/index.html web/invention.html web/universe.html web/frontier.html web/tactics.html web/manifest.webmanifest dist/
           cp web/scripts/*.js dist/scripts/
           cp target/wasm32-unknown-unknown/release/society.wasm dist/game.wasm
           cp target/wasm32-unknown-unknown/release/invention.wasm dist/invention.wasm
           cp target/wasm32-unknown-unknown/release/genesis.wasm dist/universe.wasm
           cp target/wasm32-unknown-unknown/release/frontier.wasm dist/frontier.wasm
+          cp target/wasm32-unknown-unknown/release/tactics.wasm dist/tactics.wasm
           touch dist/.nojekyll
       - uses: actions/configure-pages@v5
         with:
@@ -80,7 +83,9 @@ jobs:
             if curl --max-time 10 -fsSL "$SITE_URL" | grep -q "game.wasm" &&
                curl --max-time 10 -fsSI "${SITE_URL}game.wasm" >/dev/null &&
                curl --max-time 10 -fsSL "${SITE_URL}frontier.html" | grep -q "frontier.wasm" &&
-               curl --max-time 10 -fsSI "${SITE_URL}frontier.wasm" >/dev/null; then
+               curl --max-time 10 -fsSI "${SITE_URL}frontier.wasm" >/dev/null &&
+               curl --max-time 10 -fsSL "${SITE_URL}tactics.html" | grep -q "tactics.wasm" &&
+               curl --max-time 10 -fsSI "${SITE_URL}tactics.wasm" >/dev/null; then
               echo "Verified original game and public Frontier HTML/WASM: ${SITE_URL}frontier.html"
               exit 0
             fi

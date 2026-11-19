@@ -1047,14 +1047,75 @@ impl Battle {
     }
 
     pub fn step(&mut self) {
+        self.advance_round(false);
+    }
+
+    fn advance_round(&mut self, player_commands:bool) {
         if self.ended {return;}
         self.round+=1;
-        self.plan();
+        let player_orders=[
+            (self.units[0].order,self.units[0].destination),
+            (self.units[1].order,self.units[1].destination),
+        ];
+        self.plan(); // enemy commands stay exactly the same in both modes
+        if player_commands {
+            for (i,(order,target)) in player_orders.into_iter().enumerate() {
+                self.assign(i,order,target);
+            }
+        }
         self.movement();
         self.provision_step();
         self.fighting();
         self.after_combat();
         self.resolve_objectives();
+    }
+
+    /// Submit an explicit player command. In the playable tactical mode,
+    /// only side-zero squads are user controlled; enemy AI is still bound
+    /// by the same rules and never receives privileged resources.
+    pub fn issue_player_order(&mut self, squad:usize, order:Order,
+        destination:(i16,i16))->bool {
+        if self.ended || squad>=2 || self.units[squad].troops==0 {
+            return false;
+        }
+        if self.units[squad].routing && order!=Order::Retreat {
+            return false;
+        }
+        if order!=Order::Retreat && order!=Order::Hold &&
+            (destination.0<0 || destination.1<0 ||
+             destination.0>=FIELD_WIDTH || destination.1>=FIELD_HEIGHT ||
+             self.terrain_at(destination)==Terrain::Sea) {
+            return false;
+        }
+        self.assign(squad,order,destination);
+        true
+    }
+
+    /// The preview uses the same physical pathfinding as authoritative
+    /// movement. It cannot create extra actions, food or troop movement.
+    pub fn route_preview(&self,squad:usize)->Vec<(i16,i16)> {
+        if squad>=self.units.len() {return Vec::new();}
+        let unit=self.units[squad];
+        if unit.troops==0 || matches!(unit.order,Order::Hold) {
+            return Vec::new();
+        }
+        let mut path=Vec::new();
+        let mut pos=unit.pos;
+        for _ in 0..CELLS {
+            let Some(next)=Self::route_step(&self.map,&self.units,
+                pos,unit.destination,unit.side) else {break;};
+            if next==pos {break;}
+            path.push(next);
+            pos=next;
+        }
+        path
+    }
+
+    /// Manual mode uses the identical physics pipeline and AI adversary.
+    /// The only difference is where the two player commands originate.
+    /// The lab's pre-registered `step()` remains unchanged.
+    pub fn step_player(&mut self) {
+        self.advance_round(true);
     }
 
     pub fn play(&mut self) {
@@ -1489,6 +1550,114 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn player_orders_persist_and_enemy_ai_continues() {
+        let mut battle=Battle::new(7781,Scenario::MountainPass,
+            Policy::Adaptive,false,CombatRules::FULL)
+            .with_layout(Layout::RiverFord)
+            .with_opponent(OpponentPolicy::Counter);
+        assert!(battle.issue_player_order(0,Order::Hold,battle.objective));
+        let scout_destination=battle.depots[1];
+        assert!(battle.issue_player_order(1,Order::Attack,scout_destination));
+        let old_enemy=battle.units[2].pos;
+        for _ in 0..3 {battle.step_player();}
+        assert_eq!(battle.units[0].order,Order::Hold);
+        assert_eq!(battle.units[1].order,Order::Attack);
+        assert_eq!(battle.units[1].destination,scout_destination);
+        assert_ne!(battle.units[2].pos,old_enemy);
+        assert!(battle.audit());
+    }
+
+    #[test]
+    fn manual_mode_rejects_unauthorized_and_water_orders() {
+        let mut battle=Battle::new(1001,Scenario::MountainPass,
+            Policy::Adaptive,false,CombatRules::FULL)
+            .with_layout(Layout::RiverFord);
+        assert!(!battle.issue_player_order(2,Order::Attack,battle.depots[0]));
+        assert!(!battle.issue_player_order(3,Order::Move,battle.depots[0]));
+        assert!(!battle.issue_player_order(0,Order::Move,(-1,4)));
+        let water=(7,0);
+        assert_eq!(battle.terrain_at(water),Terrain::Sea);
+        assert!(!battle.issue_player_order(0,Order::Move,water));
+        assert!(battle.issue_player_order(1,Order::Retreat,water));
+        assert_eq!(battle.units[1].destination,battle.depots[0]);
+        assert!(battle.audit());
+    }
+
+    #[test]
+    fn manual_mode_is_deterministic_and_matches_ledger_invariants() {
+        let mut a=Battle::new(1042,Scenario::MountainPass,
+            Policy::Adaptive,false,CombatRules::FULL)
+            .with_layout(Layout::SplitValley);
+        let mut b=a.clone();
+        for t in 0..MAX_ROUNDS {
+            if t%9==0 {
+                let destination=if t%18==0 {a.objective} else {a.depots[1]};
+                let order=if t%18==0 {Order::Hold} else {Order::Attack};
+                let p=a.issue_player_order(0,order,destination);
+                let q=b.issue_player_order(0,order,destination);
+                assert_eq!(p,q);
+            }
+            a.step_player();
+            b.step_player();
+            assert_eq!(a,b);
+            assert!(a.audit());
+            assert!(b.audit());
+        }
+    }
+
+    #[test]
+    fn route_preview_cannot_cross_water() {
+        let mut b=Battle::new(1005,Scenario::MountainPass,
+            Policy::Adaptive,false,CombatRules::FULL)
+            .with_layout(Layout::RiverFord);
+        assert!(b.issue_player_order(1,Order::Attack,b.depots[1]));
+        for pos in b.route_preview(1) {
+            assert_ne!(b.terrain_at(pos),Terrain::Sea);
+        }
+    }
+
+    #[test]
+    fn playable_siege_allows_real_player_victories_and_defeats() {
+        // No visual victory flag is invented. Both good and bad player
+        // instructions are resolved by the same mechanical objective clock,
+        // pathfinder and AI used in the V0.4.3 tactical laboratory.
+        let mut defended=0usize;
+        let mut lost=0usize;
+        for seed in 1000..1012 {
+            for layout in [Layout::Ridge,Layout::RiverFord,Layout::SplitValley] {
+                let mut good=Battle::new(seed,Scenario::MountainPass,
+                    Policy::Adaptive,false,CombatRules::FULL)
+                    .with_layout(layout)
+                    .with_opponent(OpponentPolicy::Counter);
+                let rear=good.breakthrough_target();
+                assert!(good.issue_player_order(0,Order::Hold,good.objective));
+                assert!(good.issue_player_order(1,Order::Move,rear));
+                for _ in 0..MAX_ROUNDS {
+                    if good.units[1].troops>0 && good.units[1].pos==rear {
+                        good.issue_player_order(1,Order::Hold,rear);
+                    }
+                    good.step_player();
+                    assert!(good.audit());
+                }
+                defended+=(good.winner==Some(0)) as usize;
+
+                // The poor-play comparison uses the same manual mode.
+                let mut manual=Battle::new(seed,Scenario::MountainPass,
+                    Policy::Adaptive,false,CombatRules::FULL)
+                    .with_layout(layout)
+                    .with_opponent(OpponentPolicy::Counter);
+                assert!(manual.issue_player_order(0,Order::Retreat,manual.depots[0]));
+                assert!(manual.issue_player_order(1,Order::Hold,manual.units[1].pos));
+                for _ in 0..MAX_ROUNDS {manual.step_player();}
+                assert!(manual.audit());
+                lost+=(manual.winner==Some(1)) as usize;
+            }
+        }
+        assert!(defended>0,"the physical siege must allow a human-commanded defense");
+        assert!(lost>0,"a poorly commanded force must be able to lose");
     }
 
     #[test]
