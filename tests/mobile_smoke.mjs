@@ -134,6 +134,29 @@ for (const scenario of [
   const disbanded=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-after.png'),scale:'css'}));
   const finalCyan=cyanCount(disbanded);
   if(finalCyan > Math.max(10,beforeCyan+5)) throw Error(scenario.name+': DISBAND did not remove the soldier highlight ('+finalCyan+')');
+  // V0.5 smoke test: let the population run with NO player army, and
+  // confirm that the authoritative Rust rules render actual built camps.
+  if (scenario.name==='android-dpr3') {
+    await tap(buttonPoint(2)); // NEW WORLD: seed 73022, paused
+    await tap(buttonPoint(8)); // OPTIONS
+    await tap(buttonPoint(2)); // SPEED 8 -> 24
+    await tap(buttonPoint(0)); // BACK
+    await tap(buttonPoint(0)); // PLAY
+    await page.waitForTimeout(8500);
+    const hamlets=PNG.sync.read(await page.screenshot({
+      path:path.join(output,scenario.name+'-hamlets.png'),scale:'css'
+    }));
+    let amber=0;
+    for(let y=Math.ceil(boardY+3);y<Math.floor(boardY+boardSide-3);y++){
+      for(let x=Math.ceil(boardX+3);x<Math.floor(boardX+boardSide-3);x++){
+        const i=(hamlets.width*y+x)*4;
+        const r=hamlets.data[i],g=hamlets.data[i+1],b=hamlets.data[i+2];
+        if(r>215 && g>140 && g<225 && b<145) amber++;
+      }
+    }
+    if (amber<12) throw Error('No amber built camps visible after 8.5 seconds of accelerated autonomous simulation ('+amber+' amber pixels)');
+    console.log(JSON.stringify({scenario:'autonomous-hamlets',amberPixels:amber}));
+  }
   console.log(JSON.stringify({scenario:scenario.name,dpr:scenario.dpr,canvas:meta,gameColors:unique.size,
     recruitedCyan:afterCyan,disbandCyan:finalCyan,
     errors:errors.filter(e=>e.startsWith(scenario.name))}));
@@ -141,4 +164,4 @@ for (const scenario of [
 }
 await chrome.close();
 if(errors.length) throw Error('Browser script/request failures:\n'+errors.join('\n'));
-console.log('PASS: Chromium browser initialized the real WASM game and accepted map taps in 3 layouts.');
+console.log('PASS: Chromium browser initialized the real WASM game and accepted buttons and maps in 5 layouts, including autonomous settlement formation.');
