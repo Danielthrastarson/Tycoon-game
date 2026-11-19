@@ -27,7 +27,7 @@ jobs:
       - name: Test learned-carrying invariants
         run: cargo test --bin adaptation_lab
       - name: Run matched-seed seasonal learning ablation
-        run: cargo run --release --bin adaptation_lab -- 720 4
+        run: cargo run --release --bin adaptation_lab -- 720 12
       - name: Compile all three browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
