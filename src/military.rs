@@ -140,6 +140,32 @@ mod tests {
     }
 
     #[test]
+    fn guards_patrol_at_most_one_cell_and_retreat_is_bounded() {
+        let mut w = World::new(887);
+        w.recruit_nearest((55, 55), 8);
+        let members = w.squad.as_ref().unwrap().members.clone();
+        for &id in &members {
+            w.agents[id].x = 55;
+            w.agents[id].y = 55;
+            w.agents[id].energy = 100;
+        }
+        w.issue_order(Order::Hold, (55, 55));
+        for _ in 0..30 {
+            let previous: Vec<_> = members.iter()
+                .map(|&id| (w.agents[id].x, w.agents[id].y)).collect();
+            w.step();
+            for (n, &id) in members.iter().enumerate() {
+                let a = &w.agents[id];
+                assert!(World::distance((a.x,a.y), previous[n]) <= 1);
+            }
+        }
+        w.issue_order(Order::Move, (80, 80));
+        for _ in 0..8 { w.step(); }
+        assert!(w.issue_order(Order::Retreat, (0,0)));
+        assert_eq!(w.squad.as_ref().unwrap().destination(), (55,55));
+    }
+
+    #[test]
     fn wrapping_destinations_does_not_add_unphysical_moves() {
         let mut w = World::new(55);
         w.recruit_nearest((0, 0), 5);
