@@ -17,7 +17,9 @@ fn config() -> Conf {
         window_title: "Genesis — First Army".into(),
         window_width: 450,
         window_height: 800,
-        high_dpi: true,
+        // Layout and input both use CSS pixels in a phone browser.
+        // Using true made the UI shrink by devicePixelRatio on real phones.
+        high_dpi: false,
         ..Default::default()
     }
 }

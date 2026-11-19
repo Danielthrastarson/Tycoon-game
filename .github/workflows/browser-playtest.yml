@@ -29,7 +29,13 @@ jobs:
       - name: Install browser test tools
         run: |
           npm install --no-save playwright pngjs
-          npx playwright install chromium --with-deps
+          CHROME=$(command -v google-chrome || command -v chromium || true)
+          if [ -z "$CHROME" ]; then
+            npx playwright install chromium
+          else
+            echo "GENESIS_CHROME_BIN=$CHROME" >> "$GITHUB_ENV"
+            echo "Using preinstalled Chrome: $CHROME"
+          fi
       - name: Playtest touch and canvas across viewports
         run: node tests/mobile_smoke.mjs
       - uses: actions/upload-artifact@v4
