@@ -394,9 +394,11 @@ impl Battle {
         let style=match self.policy {
             Policy::Adaptive => if self.scenario==Scenario::MountainPass {
                 Policy::PassDefense
-            } else if self.scenario==Scenario::SupplyCorridor {
+            } else {
+                // Road and central-point objectives reward staying on an
+                // objective while the scout threatens enemy depth.
                 Policy::SupplyRaid
-            } else {Policy::DirectRush},
+            },
             other=>other,
         };
         match style {
@@ -410,8 +412,14 @@ impl Battle {
                 } else {
                     self.assign(0,Order::Attack,PASS);
                 }
-                let x=if self.swap {9} else {5};
-                let defensive=(x,3);
+                // Defense-in-depth: protect the *actual* breakthrough tile.
+                // A rear guard two tiles away cannot contest occupation.
+                let defensive=if self.scenario==Scenario::MountainPass {
+                    self.breakthrough_target()
+                } else {
+                    let x=if self.swap {9} else {5};
+                    (x,3)
+                };
                 if small_scout.pos==defensive {
                     self.assign(1,Order::Hold,defensive);
                 } else {
@@ -435,7 +443,10 @@ impl Battle {
             if small_main.state.morale<42 || small_main.state.fatigue>88 {
                 self.assign(0,Order::Retreat,small_depot);
             } else if self.scenario==Scenario::SupplyCorridor &&
+                small_main.pos!=PASS && !self.physical_interdiction(0) &&
                 (big_main.state.provisions==0 || big_main.troops<small_main.troops/2) {
+                // Never abandon a held road interdiction merely because
+                // the isolated enemy is running low on provisions.
                 self.assign(0,Order::Attack,big_main.pos);
             }
         }
@@ -1141,6 +1152,31 @@ mod tests {
         battle.movement();
         assert_eq!(battle.units[0].pos,(7,4));
         assert_eq!(battle.units[2].pos,(8,4));
+    }
+
+    #[test]
+    fn defense_orders_guard_real_breakthrough_objective() {
+        for swap in [false,true] {
+            let mut battle=Battle::new(1000,Scenario::MountainPass,
+                Policy::PassDefense,swap,CombatRules::FULL);
+            battle.plan();
+            assert_eq!(battle.units[1].destination,
+                battle.breakthrough_target());
+            assert_eq!(battle.units[0].order,Order::Hold);
+        }
+    }
+
+    #[test]
+    fn adaptive_keeps_pass_held_when_supply_is_being_interdicted() {
+        let mut battle=Battle::new(1000,Scenario::SupplyCorridor,
+            Policy::Adaptive,false,CombatRules::FULL);
+        battle.units[0].pos=PASS;
+        battle.units[2].pos=(5,4);
+        battle.units[2].state.provisions=0;
+        battle.destroyed_provisions[1]+=6;
+        battle.plan();
+        assert_eq!(battle.units[0].order,Order::Hold);
+        assert!(battle.audit());
     }
 
     #[test]
