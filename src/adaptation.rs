@@ -87,7 +87,7 @@ fn decision_roll(seed: u64, tick: u64, agent: usize) -> u8 {
 
 impl World {
     pub fn winter(&self) -> bool {
-        self.adaptation.seasons_enabled && Adaptation::is_winter(self.tick)
+        self.adaptation.seasons_enabled && self.air_temperature_c() < 0
     }
 
     /// A minimal instinct: use food already carried if internal energy is
@@ -138,7 +138,7 @@ impl World {
         // period is never exposed to this decision function.
         let anticipated_cold = self.adaptation.temperature_enabled &&
             self.adaptation.bodies[id].anticipates_cold(self.tick);
-        let sensed_cooling = self.adaptation.temperature_enabled &&
+        let sensed_cold = self.adaptation.temperature_enabled &&
             self.adaptation.bodies[id].last_air_c.is_some_and(|t| t < 0);
         let mind = &mut self.adaptation.agents[id];
         let food_declined = match mind.last_food {
@@ -148,7 +148,7 @@ impl World {
         };
         // Experimental binary state: evidence of scarcity or an upcoming
         // remembered cold period versus no such evidence.
-        let context = if food_declined || anticipated_cold || sensed_cooling { 1 } else { 0 };
+        let context = if food_declined || anticipated_cold || sensed_cold { 1 } else { 0 };
         mind.last_food = Some(FoodMemory {
             position: pos, stock, observed_at: self.tick,
         });
