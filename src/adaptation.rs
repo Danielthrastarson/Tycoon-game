@@ -7,6 +7,7 @@
 //! Both policies receive the same seasonal schedule on matched seeds.
 
 use crate::society::{StepReport, World, MAX_ENERGY};
+use crate::temperature::Body;
 
 pub const CARGO_CAPACITY: u8 = 4;
 pub const SEASON_LENGTH: u64 = 120;
@@ -32,7 +33,8 @@ pub struct AgentLearning {
     pub cargo: u8,
     /// An agent knows when and where it *locally* observed food.
     pub last_food: Option<FoodMemory>,
-    /// Context 0 = no measured decline, 1 = decline at same observed tile.
+    /// Context 0 = no scarcity signal; 1 = declining food, felt cold,
+    /// or a remembered approaching cold interval.
     pub carry_scores: [i16; 2],
     pub decisions: u32,
     pub updates: u32,
@@ -46,16 +48,21 @@ pub struct AgentLearning {
 pub struct Adaptation {
     /// Opt-in experiment. The normal playable Genesis V0.5 remains unchanged.
     pub seasons_enabled: bool,
+    /// Bodies only spend heat energy when this flag is enabled.
+    pub temperature_enabled: bool,
     pub policy: CarryPolicy,
     pub agents: Vec<AgentLearning>,
+    pub bodies: Vec<Body>,
 }
 
 impl Adaptation {
     pub fn new(agents: usize) -> Self {
         Self {
             seasons_enabled: false,
+            temperature_enabled: false,
             policy: CarryPolicy::Disabled,
             agents: vec![AgentLearning::default(); agents],
+            bodies: vec![Body::default(); agents],
         }
     }
 
@@ -106,7 +113,7 @@ impl World {
         debug_assert!(context < 2);
         let a = self.agents[id];
         let cell = Self::at(a.x, a.y);
-        let collected = amount.min(CARGO_CAPACITY).min(self.tiles[cell].stock);
+        let collected = amount.min(CARGO_CAPACITY).min(self.foragable_stock(cell));
         if collected == 0 { return; }
         self.tiles[cell].stock -= collected;
         let mind = &mut self.adaptation.agents[id];
@@ -126,13 +133,22 @@ impl World {
         if policy == CarryPolicy::Disabled { return; }
         let a = self.agents[id];
         let pos = (a.x, a.y);
-        let stock = self.tiles[Self::at(a.x, a.y)].stock;
+        let stock = self.foragable_stock(Self::at(a.x, a.y));
+        // An agent uses only felt climate history. The environment's season
+        // period is never exposed to this decision function.
+        let anticipated_cold = self.adaptation.temperature_enabled &&
+            self.adaptation.bodies[id].anticipates_cold(self.tick);
+        let sensed_cooling = self.adaptation.temperature_enabled &&
+            self.adaptation.bodies[id].last_air_c.is_some_and(|t| t < 0);
         let mind = &mut self.adaptation.agents[id];
-        let context = match mind.last_food {
+        let food_declined = match mind.last_food {
             Some(last) if last.position == pos
-                && last.observed_at < self.tick && stock < last.stock => 1,
-            _ => 0,
+                && last.observed_at < self.tick && stock < last.stock => true,
+            _ => false,
         };
+        // Experimental binary state: evidence of scarcity or an upcoming
+        // remembered cold period versus no such evidence.
+        let context = if food_declined || anticipated_cold || sensed_cooling { 1 } else { 0 };
         mind.last_food = Some(FoodMemory {
             position: pos, stock, observed_at: self.tick,
         });
@@ -165,7 +181,7 @@ impl World {
         if self.adaptation.policy == CarryPolicy::Disabled || !self.agents[id].alive {
             return;
         }
-        if moved && self.adaptation.agents[id].cargo > 0 && self.tick % 3 == 0 {
+        if moved && self.adaptation.agents[id].cargo > 0 && self.tick % 12 == 0 {
             self.agents[id].energy -= 1;
             self.adaptation.agents[id].burden_paid += 1;
             report.metabolic_cost += 1;
