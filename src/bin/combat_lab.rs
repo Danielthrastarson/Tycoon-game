@@ -5,8 +5,8 @@
 //! cargo run --release --bin combat_lab -- --seeds 32 --ablation all \
 //!   --output results/combat_v04.csv
 //!
-//! 16 ablations x 3 scenarios x 4 tactics x 2 side assignments x 32
-//! paired seeds = 12,288 deterministic independent match evaluations.
+//! 16 ablations x 4 scenarios x 4 tactics x 2 side assignments x 32
+//! paired seeds = 16,384 deterministic independent match evaluations.
 
 use genesis::frontier_combat::{Battle, CombatRules, Policy, Scenario};
 use std::{
@@ -116,7 +116,8 @@ struct Aggregate {
 }
 
 fn scenario_num(s:Scenario)->u8 {
-    match s { Scenario::MountainPass=>0,Scenario::SupplyCorridor=>1,Scenario::OpenField=>2 }
+    match s { Scenario::MountainPass=>0,Scenario::SupplyCorridor=>1,
+        Scenario::OpenField=>2,Scenario::OutnumberedField=>3 }
 }
 fn policy_num(p:Policy)->u8 {
     match p {
@@ -141,7 +142,7 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
     }
     let file=File::create(destination)?;
     let mut writer=BufWriter::new(file);
-    writeln!(writer,"phase,seed_index,seed,scenario,policy,swap,mask,terrain,supply,morale,fatigue,winner,small_win,large_win,draw,rounds,small_remaining,large_remaining,small_combat_lost,large_combat_lost,small_attrition_lost,large_attrition_lost,small_supplied_rounds,large_supplied_rounds,small_isolated_rounds,large_isolated_rounds,small_provisions_used,large_provisions_used,small_retreats,large_retreats,small_engagements,large_engagements,small_objective_rounds,large_objective_rounds,small_depot_lost,large_depot_lost,valid,run_microseconds")?;
+    writeln!(writer,"phase,seed_index,seed,scenario,policy,swap,mask,terrain,supply,morale,fatigue,winner,small_win,large_win,draw,rounds,small_remaining,large_remaining,small_combat_lost,large_combat_lost,small_attrition_lost,large_attrition_lost,small_supplied_rounds,large_supplied_rounds,small_isolated_rounds,large_isolated_rounds,small_provisions_used,large_provisions_used,small_retreats,large_retreats,small_engagements,large_engagements,small_objective_rounds,large_objective_rounds,small_depot_lost,large_depot_lost,valid,run_microseconds,victory_reason,pass_hold_rounds,breakthrough_rounds,small_interdiction_rounds,large_interdiction_rounds,small_center_hold_rounds,large_center_hold_rounds")?;
     let mut totals=BTreeMap::<(u8,u8,u8),Aggregate>::new();
     let mut count=0u64;
     let mut total_micros=0u128;
@@ -182,7 +183,7 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
                         aggregate.turns+=battle.round as u64;
                         let m=battle.stats;
                         writeln!(writer,
-                            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                             opts.phase.label(),seed_index,seed,
                             scenario.label(),policy.label(),swap as u8,mask,
                             rules.terrain as u8,rules.supply as u8,
@@ -200,7 +201,11 @@ fn run(opts:Options)->Result<(),Box<dyn std::error::Error>> {
                             m[0].engagements,m[1].engagements,
                             m[0].objective_rounds,m[1].objective_rounds,
                             battle.depot_lost[0] as u8,battle.depot_lost[1] as u8,
-                            valid as u8,us
+                            valid as u8,us,
+                            battle.victory_reason.map_or("draw",|v|v.label()),
+                            battle.pass_hold_rounds,battle.breakthrough_rounds,
+                            battle.interdiction_rounds[0],battle.interdiction_rounds[1],
+                            battle.center_hold_rounds[0],battle.center_hold_rounds[1]
                         )?;
                     }
                 }
