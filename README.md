@@ -30,7 +30,7 @@ The existing V0.5 browser game remains unchanged by default. V0.6 is a **headles
 
 - **Time:** each agent remembers the location, stock and simulation tick of its last local food observation. A repeated observation of the *same tile* with less food provides a coarse "declining" context. Agents cannot read the true season clock.
 - **Scarcity:** the experiment alternates 120 ticks of ordinary regeneration with 120 ticks of no regeneration. This is an invented toy environment, not ecological realism.
-- **Carrying:** agents can physically transfer up to four units of tile food into eight-unit cargo capacity, then eat it when energy becomes low. Movement with cargo sometimes incurs an extra metabolic cost. Tile, cargo and energy totals are audited.
+- **Carrying:** agents can physically transfer up to four units of tile food into four-unit cargo capacity, then eat it when energy becomes low. Movement with cargo sometimes incurs an extra metabolic cost. Tile, cargo and energy totals are audited.
 - **Learning:** a tiny contextual scoring policy explores and updates carrying preferences after delayed evidence of eating cargo versus its burden. It is not a neural network, causal learner or proof of planning.
 - **Controls:** for each matched world seed, compare **no cargo**, **50%-random cargo decisions**, and **score-based learned decisions**. Construction, sharing and communication are disabled to isolate this first experiment.
 
