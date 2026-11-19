@@ -34,8 +34,8 @@ fn terrain_color(terrain:Terrain,winter:bool)->Color {
     };
     let c=Color::new(r/255.,g/255.,b/255.,1.);
     if winter && terrain!=Terrain::Sea {
-        Color::new((c.r*.45+.45).min(1.),(c.g*.45+.48).min(1.),
-            (c.b*.45+.48).min(1.),1.)
+        Color::new((c.r*0.45+0.45).min(1.),(c.g*0.45+0.48).min(1.),
+            (c.b*0.45+0.48).min(1.),1.)
     } else {c}
 }
 
@@ -51,7 +51,7 @@ fn refresh(world:&World,image:&mut Image,texture:&Texture2D) {
             let base=terrain_color(tile.terrain,world.winter());
             let color=if tile.owner==NEUTRAL || tile.terrain==Terrain::Sea {base}
                 else {blend(base,kingdom_color(tile.owner),
-                    if tile.terrain==Terrain::Mountain {.35} else {.70})};
+                    if tile.terrain==Terrain::Mountain {0.35} else {0.70})};
             image.set_pixel(x as u32,y as u32,color);
         }
     }
@@ -65,10 +65,10 @@ fn draw_button(rect:Rect,label:&str,active:bool) {
     draw_rectangle_lines(rect.x,rect.y,rect.w,rect.h,1.,
         if active {Color::from_rgba(107,208,236,255)}
         else {Color::from_rgba(63,85,108,255)});
-    let fs=(rect.w/(label.len() as f32*.63+1.)).clamp(11.,17.);
+    let fs=(rect.w/(label.len() as f32*0.63+1.)).clamp(11.,17.);
     let t=measure_text(label,None,fs as u16,1.);
-    draw_text(label,rect.x+(rect.w-t.width)*.5,
-        rect.y+(rect.h+t.height)*.5-2.,fs,WHITE);
+    draw_text(label,rect.x+(rect.w-t.width)*0.5,
+        rect.y+(rect.h+t.height)*0.5-2.,fs,WHITE);
 }
 
 fn pressed()->Option<Vec2>{
@@ -82,15 +82,15 @@ fn pressed()->Option<Vec2>{
 }
 
 fn cell_to_screen(pos:(i16,i16),board:Rect,view:Rect)->Vec2 {
-    vec2(board.x+(pos.0 as f32+.5-view.x)/view.w*board.w,
-        board.y+(pos.1 as f32+.5-view.y)/view.h*board.h)
+    vec2(board.x+(pos.0 as f32+0.5-view.x)/view.w*board.w,
+        board.y+(pos.1 as f32+0.5-view.y)/view.h*board.h)
 }
 
 fn view_rect(center:Vec2,zoom:f32)->Rect {
     let w=(WIDTH as f32/zoom).clamp(10.,WIDTH as f32);
     let h=(HEIGHT as f32/zoom).clamp(8.,HEIGHT as f32);
-    Rect::new((center.x-w*.5).clamp(0.,WIDTH as f32-w),
-        (center.y-h*.5).clamp(0.,HEIGHT as f32-h),w,h)
+    Rect::new((center.x-w*0.5).clamp(0.,WIDTH as f32-w),
+        (center.y-h*0.5).clamp(0.,HEIGHT as f32-h),w,h)
 }
 
 fn map_cell(pos:Vec2,board:Rect,view:Rect)->(i16,i16) {
@@ -122,7 +122,7 @@ async fn main() {
     let mut accumulator=0.0_f32;
     let mut mode=Order::Move;
     let mut zoom=1.0_f32;
-    let mut center=vec2(WIDTH as f32*.5,HEIGHT as f32*.5);
+    let mut center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
     let mut pinch_prev:Option<f32>=None;
     let mut notice=String::from("Select army dot, then tap destination. Defend your capital!");
     let mut image=Image::gen_image_color(WIDTH as u16,HEIGHT as u16,BLACK);
@@ -134,22 +134,22 @@ async fn main() {
         let sw=screen_width();
         let sh=screen_height();
         let wide=sw>sh*1.24;
-        let rail_w=if wide {(sw*.32).clamp(285.,340.)} else {sw};
+        let rail_w=if wide {(sw*0.32).clamp(285.,340.)} else {sw};
         let rail_x=if wide {sw-rail_w} else {0.};
         let controls_y=if wide {178.} else {(sh-211.).max(350.)};
         let board_region_w=if wide {rail_x-24.} else {sw-18.};
         let board_region_h=if wide {sh-108.} else {controls_y-98.};
         let map_scale=(board_region_w/WIDTH as f32).min(board_region_h/HEIGHT as f32);
         let board=Rect::new(
-            if wide {12.+(board_region_w-WIDTH as f32*map_scale)*.5}
-            else {(sw-WIDTH as f32*map_scale)*.5},
-            82.+(board_region_h-HEIGHT as f32*map_scale)*.4,
+            if wide {12.+(board_region_w-WIDTH as f32*map_scale)*0.5}
+            else {(sw-WIDTH as f32*map_scale)*0.5},
+            82.+(board_region_h-HEIGHT as f32*map_scale)*0.4,
             WIDTH as f32*map_scale,HEIGHT as f32*map_scale,
         );
         let grid_side=7.;
         let button_w=(rail_w-24.-2.*grid_side)/3.;
         let button_h=49.;
-        let buttons:Vec<Rect>=(0..9).map(|i|Rect::new(
+        let buttons:Vec<Rect>=(0.0.9).map(|i|Rect::new(
             rail_x+12.+(i%3) as f32*(button_w+grid_side),
             controls_y+(i/3) as f32*57.,button_w,button_h)).collect();
 
@@ -163,9 +163,9 @@ async fn main() {
             }
             pinch_prev=Some(d);
         } else {pinch_prev=None;}
-        let wheel=mouse_wheel().1;
+        let wheel=mouse_wheel()0.1;
         if wheel!=0. {
-            zoom=(zoom*(1.+wheel*.15).max(.6)).clamp(1.,4.);
+            zoom=(zoom*(1.+wheel*0.15).max(0.6)).clamp(1.,4.);
         }
         let tap=if touch_list.len()<2 {pressed()} else {None};
         if let Some(p)=tap {
@@ -175,7 +175,7 @@ async fn main() {
                         else {"Paused. Issue orders, then resume."}.into();}
                     1=>{seed=seed.wrapping_add(1);world=World::new(seed);
                         selected=world.armies[0].id;mode=Order::Move;
-                        zoom=1.;center=vec2(WIDTH as f32*.5,HEIGHT as f32*.5);
+                        zoom=1.;center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
                         last_texture_tick=u64::MAX;running=true;
                         notice="New world generated. Your kingdom is BLUE.".into();}
                     2=>{
@@ -211,7 +211,7 @@ async fn main() {
                             center=vec2(a.x as f32,a.y as f32);
                         }}
                     8=>{zoom=(zoom/1.5).max(1.);
-                        if zoom==1. {center=vec2(WIDTH as f32*.5,HEIGHT as f32*.5);}}
+                        if zoom==1. {center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);}}
                     _=>{}
                 }
             } else if board.contains(p) {
@@ -252,7 +252,7 @@ async fn main() {
         }
 
         if running && world.winner.is_none() {
-            accumulator+=get_frame_time().min(.12);
+            accumulator+=get_frame_time().min(0.12);
             let delta=1./speed as f32;
             let mut n=0;
             while accumulator>=delta && n<5 {
@@ -297,7 +297,7 @@ async fn main() {
             let label=measure_text(text,None,label_fs as u16,1.);
             draw_rectangle(point.x-label.width/2.-4.,point.y-29.,
                 label.width+8.,17.,Color::from_rgba(14,26,38,200));
-            draw_text(text,point.x-label.width*.5,point.y-16.,label_fs,WHITE);
+            draw_text(text,point.x-label.width*0.5,point.y-16.,label_fs,WHITE);
         }
         for a in world.armies.iter().filter(|a|a.troops>0 &&
             world.kingdoms[a.owner as usize].alive) {
@@ -321,7 +321,7 @@ async fn main() {
             let count=format!("{}",a.troops);
             let size=11.;
             let measured=measure_text(&count,None,size as u16,1.);
-            let tx=p.x-measured.width*.5;
+            let tx=p.x-measured.width*0.5;
             draw_rectangle(tx-3.,p.y-25.,measured.width+6.,14.,
                 Color::from_rgba(16,26,39,226));
             draw_text(&count,tx,p.y-14.,size,WHITE);
@@ -378,13 +378,13 @@ async fn main() {
             footer_y,(rail_w/37.).clamp(10.,13.),LIGHTGRAY);
 
         if world.winner.is_some() && !wide {
-            draw_rectangle(board.x+13.,board.y+board.h*.43,
+            draw_rectangle(board.x+13.,board.y+board.h*0.43,
                 board.w-26.,54.,Color::from_rgba(14,28,42,230));
             let winner=world.winner.unwrap();
             let text=if winner==0 {"YOU WIN"} else {"YOU LOSE"};
             let tw=measure_text(text,None,28,1.);
             draw_text(text,board.x+(board.w-tw.width)/2.,
-                board.y+board.h*.43+35.,28.,
+                board.y+board.h*0.43+35.,28.,
                 if winner==0 {Color::from_rgba(139,239,194,255)}
                 else {Color::from_rgba(248,149,130,255)});
         }
