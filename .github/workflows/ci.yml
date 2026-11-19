@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [genesis-v03-emergent-groups]
+    branches: [genesis-v04-first-army]
 permissions:
   contents: read
 jobs:
@@ -20,6 +20,8 @@ jobs:
         run: cargo run --release --bin lab -- 200
       - name: Run agent-world experiment
         run: cargo run --release --bin society_lab -- 1500 4
+      - name: Deterministic army, logistics and resource contests
+        run: cargo run --release --bin military_lab -- 350 4
       - name: Compile all three browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown

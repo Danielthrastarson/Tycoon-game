@@ -4,6 +4,7 @@ pub mod core;
 pub mod scale;
 pub mod invention;
 pub mod society;
+pub mod military;
 
 pub use core::{Audit, Cell, Universe};
 pub use scale::{Level, Pyramid, Sample};
