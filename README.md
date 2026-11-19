@@ -24,6 +24,25 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## V0.6 (experimental): embodied winter and learned anticipation
+
+This is an **opt-in research laboratory**. The V0.5 playable browser game still starts with the original mechanics.
+
+- **External world:** a deterministic 240-tick temperature cycle, starting at 18°C, cooling gradually to −18°C, then warming again. Below freezing, exposed food regrowth pauses and a tile yields at most two food units per action. Food is not deleted.
+- **Body:** each agent has internal core temperature with a biological setpoint (37.0°C in the toy model). Ambient air cools it. Spending food-derived energy restores warmth; shelters cut heat loss. Agents short of energy can become dangerously cold and die. Temperature values and energy costs are **game abstractions**, not a medically accurate simulation.
+- **Sensing and memory:** an agent senses ambient temperature; after observing two successive cold onsets, it can infer an approximate repeat interval using simulation timestamps. It does not receive a hidden global season flag.
+- **Carrying and learning:** an agent can move up to four units of real food from a resource tile into cargo, spend that food when hungry, and gradually learn a context-dependent carrying preference. The toy policy reacts to food decline, felt cold or an expected future cold interval. It does not yet model long-term planning or accurate cause attribution.
+- **Physical accounting:** stock + cargo + agent energy + shared stores balances against regrowth and expenditure on movement, maintenance, carrying, construction and thermoregulation.
+- **Matched comparisons:** compare no cargo without bodily heating, no cargo with heating, random carrying with heating, and score-based carrying with heating. All four use identical seasonal food restrictions. Compare survival after 120/360 ticks, total survival, warmth cost, cargo actually eaten, cold deaths, decisions and learned cycle estimates.
+
+```bash
+cargo test --lib
+cargo test --bin adaptation_lab
+cargo run --release --bin adaptation_lab -- 720 4
+```
+
+**Design limitation:** One can learn a period without knowing that the prediction *caused* a survival benefit. We will not claim emergence or successful adaptation unless controlled outcomes support it.
+
 ## Scientific tests
 
 ```bash
@@ -56,6 +75,9 @@ The app uses CSS-pixel mouse/touch coordinates (`high_dpi=false`) to keep contro
 
 - `src/society.rs`: authoritative agent resource dynamics and timing; energy ledger.
 - `src/settlements.rs`: local camp construction, finite shared storage, read-only settlement observer and tests.
+- `src/adaptation.rs`: opt-in time-stamped memories, resource-carrying and learned decision scores.
+- `src/temperature.rs`: environmental air temperature, embodied heat cost and personal cold-onset timing.
+- `src/bin/adaptation_lab.rs`: matched-seed survival and resource accounting experiment.
 - `src/military.rs`: player's temporary army and orders (V0.4).
 - `src/bin/society.rs`: two-dimensional dot-and-line phone renderer with observational labels and touch controls.
 - `src/bin/settlement_lab.rs`: reproducible ON/OFF formation experiment.
