@@ -45,15 +45,68 @@ fn blend(a:Color,b:Color,alpha:f32)->Color {
         a.g*(1.-alpha)+b.g*alpha,a.b*(1.-alpha)+b.b*alpha,1.)
 }
 
+// Simulation cells are low-resolution *state*, not display pixels.
+// Each logical cell gets four presentation pixels with gentle cartographic
+// detail and a thin coast/territorial boundary. No physics is smoothed.
+const MAP_RASTER: usize = 4;
+
 fn refresh(world:&World,image:&mut Image,texture:&Texture2D) {
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let tile=world.tiles[y*WIDTH+x];
             let base=terrain_color(tile.terrain,world.winter());
-            let color=if tile.owner==NEUTRAL || tile.terrain==Terrain::Sea {base}
-                else {blend(base,kingdom_color(tile.owner),
-                    if tile.terrain==Terrain::Mountain {0.35} else {0.70})};
-            image.set_pixel(x as u32,y as u32,color);
+            let mut ground=if tile.owner==NEUTRAL || tile.terrain==Terrain::Sea {
+                base
+            } else {
+                blend(base,kingdom_color(tile.owner),
+                    if tile.terrain==Terrain::Mountain {0.25} else {0.60})
+            };
+            // Quiet terrain variation reads as texture rather than a grid.
+            let variation=((x*17+y*31+world.seed as usize%19)%13) as f32;
+            ground=blend(ground,Color::from_rgba(209,222,193,255),
+                variation/260.0);
+            let east=if x+1<WIDTH {world.tiles[y*WIDTH+x+1]} else {tile};
+            let south=if y+1<HEIGHT {world.tiles[(y+1)*WIDTH+x]} else {tile};
+            let owner_edge_e=tile.owner!=east.owner && tile.terrain.traversable()
+                && east.terrain.traversable();
+            let owner_edge_s=tile.owner!=south.owner && tile.terrain.traversable()
+                && south.terrain.traversable();
+            let coast_e=tile.terrain.traversable()!=east.terrain.traversable();
+            let coast_s=tile.terrain.traversable()!=south.terrain.traversable();
+            for sy in 0..MAP_RASTER {
+                for sx in 0..MAP_RASTER {
+                    let mut c=ground;
+                    let edge= (sx==MAP_RASTER-1 && (owner_edge_e || coast_e))
+                        || (sy==MAP_RASTER-1 && (owner_edge_s || coast_s));
+                    if edge {
+                        // Thin warm outlines are clearer than block edges.
+                        let ink=if tile.owner==NEUTRAL {
+                            Color::from_rgba(142,171,161,255)
+                        } else {blend(kingdom_color(tile.owner),WHITE,0.38)};
+                        c=blend(c,ink,if coast_e||coast_s {0.50} else {0.65});
+                    } else {
+                        // Tiny marks hint at geography without drawing icons
+                        // for thousands of tiles every render frame.
+                        let detail=match tile.terrain {
+                            Terrain::Mountain=>sx==2 && sy==1,
+                            Terrain::Forest=>sx==1 && sy==2,
+                            Terrain::Farm=>sy==2 && (sx==1||sx==3),
+                            _=>false
+                        };
+                        if detail {
+                            c=blend(c,if tile.terrain==Terrain::Mountain {
+                                Color::from_rgba(222,226,224,255)
+                            } else if tile.terrain==Terrain::Forest {
+                                Color::from_rgba(18,60,50,255)
+                            } else {
+                                Color::from_rgba(213,220,147,255)
+                            },0.42);
+                        }
+                    }
+                    image.set_pixel((x*MAP_RASTER+sx) as u32,
+                        (y*MAP_RASTER+sy) as u32,c);
+                }
+            }
         }
     }
     texture.update(image);
@@ -165,7 +218,8 @@ async fn main() {
     let mut map_gesture: Option<MapGesture> = None;
     let mut suppress_single_touch = false;
     let mut notice=String::from("Pinch to zoom, drag map to pan, tap to command.");
-    let mut image=Image::gen_image_color(WIDTH as u16,HEIGHT as u16,BLACK);
+    let mut image=Image::gen_image_color((WIDTH*MAP_RASTER) as u16,
+        (HEIGHT*MAP_RASTER) as u16,BLACK);
     let texture=Texture2D::from_image(&image);
     // Smooth boundaries when magnified, rather than nearest-neighbor blocks.
     texture.set_filter(FilterMode::Linear);
@@ -407,7 +461,10 @@ async fn main() {
         // the same Rust world, not independent gameplay data.
         let view=view_rect(center,zoom);
         draw_texture_ex(&texture,board.x,board.y,WHITE,DrawTextureParams{
-            source:Some(view),dest_size:Some(vec2(board.w,board.h)),
+            source:Some(Rect::new(view.x*MAP_RASTER as f32,
+                view.y*MAP_RASTER as f32,
+                view.w*MAP_RASTER as f32,view.h*MAP_RASTER as f32)),
+            dest_size:Some(vec2(board.w,board.h)),
             ..Default::default()
         });
         draw_rectangle_lines(board.x,board.y,board.w,board.h,1.,
