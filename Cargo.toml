@@ -1,8 +1,8 @@
 [package]
 name = "genesis"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
-description = "Genesis: first army, emergent society, and experimental universes"
+description = "Genesis: emerging settlements, autonomous citizens, and player-controlled armies"
 
 [dependencies]
 macroquad = "0.4"

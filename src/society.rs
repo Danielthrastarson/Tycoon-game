@@ -9,6 +9,7 @@
 //! this is a tractable agent-based experiment, not life from particle physics.
 
 use crate::military::{GuardResult, Order, Squad};
+use crate::settlements::Camp;
 
 pub const SIDE: usize = 128;
 pub const INITIAL_AGENTS: usize = 100;
@@ -34,9 +35,11 @@ pub struct Rules {
     /// Controlled experiment: disable this to measure sharing's effects.
     pub sharing: bool,
     pub communication: bool,
+    /// Switch for seed-matched construction/no-construction experiments.
+    pub construction: bool,
 }
 impl Default for Rules {
-    fn default() -> Self { Self { sharing: true, communication: true } }
+    fn default() -> Self { Self { sharing: true, communication: true, construction: true } }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,6 +52,9 @@ pub struct StepReport {
     pub access_denied: u32,
     pub access_overrun: u32,
     pub deaths: u32,
+    pub constructions: u32,
+    pub stored: u64,
+    pub withdrawn: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +62,10 @@ pub struct World {
     pub seed: u64,
     pub tick: u64,
     pub tiles: Vec<Tile>,
+    /// Environmental visitation traces accumulate from actual agent positions.
+    pub footprints: Vec<u16>,
+    /// Persistent structures are created by local agent actions, never spawned.
+    pub camps: Vec<Camp>,
     pub agents: Vec<Agent>,
     /// Symmetric tie strength gained by actual resource sharing.
     /// Initial scores are ALL zero: no pre-assigned groups.
@@ -78,6 +88,8 @@ impl World {
         let mut world = Self {
             seed, tick: 0,
             tiles: vec![Tile::default(); SIDE * SIDE],
+            footprints: vec![0; SIDE * SIDE],
+            camps: Vec::new(),
             agents: Vec::with_capacity(INITIAL_AGENTS),
             ties: vec![0; INITIAL_AGENTS * INITIAL_AGENTS],
             rules: Rules::default(),
@@ -176,6 +188,7 @@ impl World {
     pub fn stored_energy(&self) -> u64 {
         self.tiles.iter().map(|t| t.stock as u64).sum::<u64>()
             + self.agents.iter().map(|a| a.energy as u64).sum::<u64>()
+            + self.camps.iter().map(|c| c.supplies as u64).sum::<u64>()
     }
 
     /// Recruit 5–10 of the *existing* living agents closest to the tap.
@@ -476,8 +489,14 @@ impl World {
 
         for &i in &order {
             if !self.agents[i].alive { continue; }
-            self.agents[i].energy -= 1;
-            report.metabolic_cost += 1;
+            let a = self.agents[i];
+            // Shared shelter reduces some metabolic expenditure; no energy
+            // appears from nowhere, and soldiers are not exempt.
+            let protected = self.tick % 4 == 0 && self.near_shelter(a.x,a.y);
+            if !protected {
+                self.agents[i].energy -= 1;
+                report.metabolic_cost += 1;
+            }
             if self.agents[i].energy == 0 {
                 self.agents[i].alive = false;
                 report.deaths += 1;
@@ -501,6 +520,10 @@ impl World {
                 if self.share_pair(i, j, &mut report) { break; }
             }
         }
+
+        // Includes locally initiated construction, public storage deposits
+        // and withdrawals. These conserve energy except explicit build cost.
+        self.construction_and_storage(&mut report);
 
         if self.tick % 32 == 0 {
             for score in &mut self.ties { *score = score.saturating_sub(1); }

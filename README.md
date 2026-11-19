@@ -1,76 +1,67 @@
-# Genesis V0.4.1 — Playable First Army (Mobile UI Fix)
+# Genesis V0.5 — Settlements From Individuals
 
-**Play:** https://danielthrastarson.github.io/Tycoon-game/
+**[Play Genesis on your phone](https://danielthrastarson.github.io/Tycoon-game/)** · [Circuit lab](https://danielthrastarson.github.io/Tycoon-game/invention.html) · [Voxel experiment](https://danielthrastarson.github.io/Tycoon-game/universe.html)
 
-**Research labs:** [Circuits](https://danielthrastarson.github.io/Tycoon-game/invention.html) · [Voxels](https://danielthrastarson.github.io/Tycoon-game/universe.html)
+A minimal Rust/WebAssembly experiment in **civilization emergence**, rendered with readable dots, colors, lines and a few square structures. The game has *no preplaced towns, kingdoms, borders, government, money or technology trees*.
 
-A minimal autonomous-society simulation. Only the player's military orders are under direct control; no populations or kingdoms are spawned when an army is recruited.
+## Watch settlements form
 
-## Start playing — only two steps
+1. Press **PLAY**. The world starts paused with 100 independent people.
+2. Watch agents find resources, move, talk and share energy. The simulation defaults to 8 ticks/second; use **OPTIONS → SPEED** to try 2, 8 or 24 ticks/second.
+3. **Amber squares** are camps physically built by the simulated people. **HAMLET** rings/names appear after a camp remains occupied and used over multiple observation intervals.
+4. The observer counts hamlets, camps, living people, social networks and energy held in public stores. Population patterns are not assigned in advance.
 
-1. **Tap anywhere on the map.** The eight closest living agents become your cyan-colored squad; the world starts moving.
-2. **Tap somewhere else to MOVE your army.** Or press **HOLD**, then tap a green food field to defend it. The first simple mission is to hold an area with at least three guards nearby for 20 simulation ticks.
+The player still controls only military interventions: tap the map to recruit eight existing civilians, tap elsewhere to give a MOVE order, or use HOLD, RETREAT and DISBAND. Larger cyan dots show the commanded army; civilians otherwise act autonomously.
 
-The first world starts **paused** so you can understand the map before your people starve. No menu interaction is required for the first recruitment.
+## What the rules actually do
 
-### Main controls
+- **Repeated use of place:** agents leave a footprint when they occupy a productive cell. Footprints are evidence of activity, not territory ownership.
+- **Social prerequisite:** an energetic civilian can construct a camp only at a repeatedly visited, productive location with at least two nearby agents who have actually developed strong local interaction ties. Camps are spaced apart; construction costs the builder 14 units of energy.
+- **Physical shared infrastructure:** a camp is a persistent location with a finite 120-unit public energy store. High-energy visitors deposit surplus and hungry visitors withdraw it. Any nearby agent, including a military unit, can use this resource; there is no membership restriction or fixed social hierarchy.
+- **Shelter:** nearby agents incur less metabolic expenditure on some ticks, explicitly reflected in the energy accounting.
+- **Competition:** civilians still encounter finite, locally replenished resource stocks; overlapping local populations consume the same actual world resources. Player-controlled guards may deny some access as in V0.4.
+- **Observer, not architect:** the independent `SettlementObserver` labels a camp only when at least three *living* agents remain nearby, it is recently used, and it meets the criteria across three real time-spaced observations (24 ticks apart). Unoccupied structures remain as ruins but lose the hamlet label.
 
-- **PLAY / PAUSE**: run or stop the simulation.
-- **RECRUIT**: tap again to select a new squad of eight living civilians.
-- **NEW WORLD**: reset with a fresh deterministic seed, paused.
-- **MOVE**: select your army's movement destination (or just tap the map).
-- **HOLD**: tap a location for local resource-access defence.
-- **RETREAT**: go back to your recruitment site.
-- **DISBAND**: restore soldiers to autonomous civilian foraging.
-- **ZOOM +**: zoom in. Pinch and drag also work on phones.
-- **OPTIONS**: second page with back, single-step, speed, food, groups, interaction lines, civilian sharing, zoom out and center.
+These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
-On desktop and landscape screens, controls move to a right-hand panel instead of covering the map.
+## Scientific tests
 
-### What the visuals mean
-
-- White/colored dots = autonomous people (colors for independently observed social groups).
-- Cyan outlined dots = your currently commanded squad members.
-- Green patches = replenishable local food stock.
-- Thin lines between civilians = observed social contacts.
-- Cyan circle and line = your military destination; they do not confer ownership.
-- The status panel shows live squad size, order, mean energy, and the separate **20-tick HOLD tutorial objective**. This objective only observes events; it never modifies the simulation's physics.
-
-## Scientific and gameplay limits
-
-- The army consists of actual living agents from the starting population of 100, not spawned military units.
-- Recruited agents move at most one cell per tick and spend energy. They forage locally and can die from starvation.
-- Guards can deny food access when they locally outnumber challengers. If civilians outnumber them, the defence fails without damage or death from combat.
-- Civilian movement, gathering, sharing, communication and social-network detection continue independently.
-- The simulator **assumes** programmable foraging, communication and command obedience; these are designed behaviours, not emergent discoveries.
-- Observed groups are not kingdoms or legally owned territories. No actual weapons, reproduction, government, technology tree or economic specialization is implemented.
-- Controlled experiments show armies currently struggle to survive long deployments; supply chains remain a future milestone.
-
-## Browser playtesting
-
-This repository now runs an automated **real Chromium playtest** that builds the actual Rust WebAssembly binary, serves the website, opens it at three viewport sizes, and uses real touchscreen/mouse actions to:
-
-1. Verify that the canvas renders rather than remaining blank.
-2. Recruit eight cyan soldiers by tapping the map.
-3. Issue MOVE, HOLD and RETREAT commands.
-4. DISBAND and confirm cyan soldier highlights disappear.
-5. Check for JavaScript errors or failed resource requests.
-6. Upload screenshots so that layout and usability can be inspected.
-
-See [Browser Playtest GitHub Action](https://github.com/Danielthrastarson/Tycoon-game/actions/workflows/browser-playtest.yml). GitHub Pages deployment also checks that the public homepage and \`game.wasm\` actually respond after publish.
-
-Browser automation does **not** prove your particular Android device's GPU, browser permissions or networking work. The homepage now displays an actionable error if its engine fails to start, instead of silently showing a blank canvas.
-
-## Engineering and verification
-
-The authoritative simulation is \`src/society.rs\`, command structures/tests are in \`src/military.rs\`, and the read-only mobile renderer is \`src/bin/society.rs\`. The new 20-tick Hold progress is a display-only tutorial, not a new social or physics rule.
-
-\`\`\`bash
+```bash
 cargo test --lib
-cargo run --release --bin military_lab -- 400 8
+cargo run --release --bin settlement_lab -- 1000 4
 cargo run --release --bin society_lab -- 1500 4
+cargo run --release --bin military_lab -- 350 4
 rustup target add wasm32-unknown-unknown
 cargo build --release --bin society --target wasm32-unknown-unknown
-\`\`\`
+```
 
-To develop on a phone, open the GitHub repository in Codespaces and run \`python3 dev.py\`. Open forwarded port 8000; saving Rust changes rebuilds the WASM game. The previous physics and invention laboratories remain playable as separate pages.
+The settlement experiment compares matched seeds with construction **ON** and **OFF**, printing number of camps, observable enduring hamlets, local population, survival, store contents and visits, plus the first construction and first recognized hamlet ticks. It checks the energy ledger each tick, including stores and construction costs. The control must create no camps, and a reference multi-seed run must show at least one persistent settlement.
+
+A named hamlet is evidence for persistent occupied infrastructure **under this simplified definition**, not proof of invented government, institutions or beneficial cooperation. A few successful seeds do not establish general emergent civilization or reliable long-term success.
+
+## Visual and mobile controls
+
+- **White or colored dots:** autonomous people; colors for independently detected interaction groups.
+- **Cyan outlined dots:** your player-commanded squad, using real citizens.
+- **Green pixels:** local resource stocks.
+- **Amber squares:** physically constructed camps; gray squares show abandoned structures.
+- **HAMLET labels:** only the most populous, non-overlapping labels appear on the world overview; zoom in for more names and amber locality rings. They are not government borders.
+- **Colored dots:** observed social interaction networks. Thin relationship lines and social boundaries appear when zoomed in so they do not clutter the overview.
+- **Main menu:** PLAY/PAUSE, RECRUIT, NEW WORLD, MOVE, HOLD, RETREAT, DISBAND, ZOOM+, OPTIONS.
+- **OPTIONS:** STEP, SPEED, FOOD, GROUPS, LINES, SHARE, ZOOM−, CENTER.
+
+The app uses CSS-pixel mouse/touch coordinates (`high_dpi=false`) to keep controls usable on high-DPI Android screens. Existing Chromebook, narrow phone and foldable touchscreen regression tests remain active in `.github/workflows/browser-playtest.yml`. GitHub Pages deployment checks public site and WASM accessibility.
+
+## Code organization
+
+- `src/society.rs`: authoritative agent resource dynamics and timing; energy ledger.
+- `src/settlements.rs`: local camp construction, finite shared storage, read-only settlement observer and tests.
+- `src/military.rs`: player's temporary army and orders (V0.4).
+- `src/bin/society.rs`: two-dimensional dot-and-line phone renderer with observational labels and touch controls.
+- `src/bin/settlement_lab.rs`: reproducible ON/OFF formation experiment.
+- `src/bin/military_lab.rs`, `src/bin/society_lab.rs`: previous controlled social and military experiments.
+- `src/invention.rs` and `src/core.rs`: retained independent V0.2 and V0.1 research substrates.
+
+**Next unresolved milestone:** population reproduction, material construction beyond public camps, division of labor, and actual institutions/kingdoms that can grow or disappear as consequences of local interaction. None is implemented in V0.5.
+
+To develop using an Android browser, open the [GitHub repository](https://github.com/Danielthrastarson/Tycoon-game) in Codespaces, run `python3 dev.py`, and open forwarded port 8000.
