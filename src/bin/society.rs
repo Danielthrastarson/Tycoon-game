@@ -50,7 +50,7 @@ fn button(rect: Rect, text: &str, active: bool) {
     let bg = if active { Color::from_rgba(35, 100, 116, 255) }
         else { Color::from_rgba(33, 51, 68, 255) };
     draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
-    let size = (rect.w / (text.len() as f32 * 0.56 + 1.0)).clamp(11., 16.);
+    let size = (rect.w / (text.len() as f32 * 0.56 + 1.0)).clamp(13., 19.);
     let measure = measure_text(text, None, size as u16, 1.0);
     draw_text(text, rect.x + (rect.w - measure.width) * 0.5,
         rect.y + (rect.h + measure.height) * 0.5 - 2., size, WHITE);
@@ -116,8 +116,9 @@ async fn main() {
     let mut seed = 73021_u64;
     let mut world = World::new(seed);
     let mut observer = Observer::default();
-    let mut running = true;
-    let mut speed = 8_usize;
+    // Begin paused: the player can understand the board before agents die.
+    let mut running = false;
+    let mut speed = 2_usize;
     let mut accumulator = 0.0_f32;
     let mut zoom = 1.0_f32;
     let mut center = vec2(64.0, 64.0);
@@ -127,7 +128,8 @@ async fn main() {
     let mut show_links = true;
     let mut show_food = true;
     let mut pending: Option<Pending> = None;
-    let mut notice = String::from("RECRUIT, then tap near agents to form a squad.");
+    let mut notice = String::from("Tap the map to recruit eight nearby civilians.");
+    let mut options = false;
     let mut selected: Option<usize> = None;
     let mut image = Image::gen_image_color(SIDE as u16, SIDE as u16, BLACK);
     let texture = Texture2D::from_image(&image);
@@ -137,16 +139,26 @@ async fn main() {
     loop {
         let sw = screen_width();
         let sh = screen_height();
-        let controls_y = sh - 222.0;
-        let board_side = (sw - 22.0).min((controls_y - 138.0).max(90.0));
-        let board = Rect::new((sw - board_side) * 0.5, 105.0, board_side, board_side);
-        let buttons_gap = 5.0;
-        let button_width = (sw - 18.0 - 3.0 * buttons_gap) / 4.0;
-        let mut buttons = Vec::with_capacity(16);
-        for row in 0..4 {
-            for col in 0..4 {
-                buttons.push(Rect::new(9.0 + col as f32 * (button_width + buttons_gap),
-                    controls_y + row as f32 * 49.0, button_width, 43.0));
+        // Big 3-column touch controls. On wide screens, the controls move
+        // to a right rail; on phones, they sit below the map.
+        let wide = sw > sh * 1.25;
+        let panel_w = if wide { (sw * 0.35).clamp(285.0, 370.0) } else { sw };
+        let panel_x = if wide { sw - panel_w } else { 0.0 };
+        let controls_y = if wide { 172.0 } else { sh - 206.0 };
+        let board_w = if wide { panel_x - 22.0 } else { sw - 22.0 };
+        let board_h = if wide { sh - 112.0 } else { controls_y - 148.0 };
+        let board_side = board_w.min(board_h).max(86.0);
+        let board = Rect::new(
+            if wide { 12.0 } else { (sw - board_side) * 0.5 },
+            87.0, board_side, board_side);
+        let gap = 7.0;
+        let button_width = (panel_w - 24.0 - 2.0 * gap) / 3.0;
+        let button_h = 53.0;
+        let mut buttons = Vec::with_capacity(9);
+        for row in 0..3 {
+            for col in 0..3 {
+                buttons.push(Rect::new(panel_x + 12.0 + col as f32 * (button_width + gap),
+                    controls_y + row as f32 * (button_h + gap), button_width, button_h));
             }
         }
 
@@ -182,60 +194,82 @@ async fn main() {
         let pressed = if contacts.len() >= 2 { None } else { touch_started() };
         if let Some(p) = pressed {
             if let Some(i) = buttons.iter().position(|rect| rect.contains(p)) {
-                match i {
-                    0 => running = !running,
-                    1 => {
-                        world.step();
-                        if world.tick % 24 == 0 { observer.observe(&world); }
-                        running = false;
-                    }
-                    2 => speed = match speed { 2 => 8, 8 => 24, _ => 2 },
-                    3 => {
-                        seed = seed.wrapping_add(1);
-                        world = World::new(seed);
-                        observer = Observer::default();
-                        last_food_tick = u64::MAX;
-                        selected = None;
-                        pending = None;
-                        notice = "New world, no preassigned armies or factions.".into();
-                        running = true;
-                        accumulator = 0.0;
-                    }
-                    4 => {
-                        pending = Some(Pending::Recruit);
-                        notice = "Tap near dots to recruit the eight nearest living agents.".into();
-                    }
-                    5 => {
-                        if world.squad.is_some() {
-                            pending = Some(Pending::Move);
-                            notice = "Tap a destination. Soldiers travel one tile per tick.".into();
-                        } else { notice = "Recruit an army first.".into(); }
-                    }
-                    6 => {
-                        if world.squad.is_some() {
-                            pending = Some(Pending::Hold);
-                            notice = "Tap a resource site to guard it.".into();
-                        } else { notice = "Recruit an army first.".into(); }
-                    }
-                    7 => {
-                        if world.issue_order(Order::Retreat, (0, 0)) {
+                if !options {
+                    match i {
+                        0 => {
+                            running = !running;
+                            notice = if running { "Simulation running." }
+                                else { "Paused. Choose a command or tap the map." }.into();
+                        }
+                        1 => {
+                            pending = Some(Pending::Recruit);
+                            notice = "RECRUIT: tap near civilians on the map.".into();
+                        }
+                        2 => {
+                            seed = seed.wrapping_add(1);
+                            world = World::new(seed);
+                            observer = Observer::default();
+                            last_food_tick = u64::MAX;
+                            selected = None;
                             pending = None;
-                            notice = "Retreat to the recruitment location.".into();
-                        } else { notice = "Recruit an army first.".into(); }
+                            running = false;
+                            accumulator = 0.0;
+                            center = vec2(64.0, 64.0);
+                            zoom = 1.0;
+                            notice = "New world. Tap the map to recruit soldiers.".into();
+                        }
+                        3 => {
+                            if world.squad.is_some() {
+                                pending = Some(Pending::Move);
+                                notice = "MOVE: now tap a destination on the map.".into();
+                            } else { pending = Some(Pending::Recruit);
+                                notice = "First recruit: tap near civilians.".into(); }
+                        }
+                        4 => {
+                            if world.squad.is_some() {
+                                pending = Some(Pending::Hold);
+                                notice = "HOLD: tap a green area to defend it.".into();
+                            } else { pending = Some(Pending::Recruit);
+                                notice = "First recruit: tap near civilians.".into(); }
+                        }
+                        5 => {
+                            if world.issue_order(Order::Retreat, (0, 0)) {
+                                pending = None;
+                                running = true;
+                                notice = "RETREAT: squad returning to recruitment site.".into();
+                            } else { notice = "You need to recruit soldiers first.".into(); }
+                        }
+                        6 => {
+                            world.disband();
+                            pending = None;
+                            notice = "Soldiers disbanded; they resume civilian life.".into();
+                        }
+                        7 => zoom = (zoom * 1.6).min(14.0),
+                        8 => {
+                            options = true;
+                            notice = "Options: step, speed, layers and camera.".into();
+                        }
+                        _ => {}
                     }
-                    8 => {
-                        world.disband();
-                        pending = None;
-                        notice = "Soldiers return to autonomous civilian behaviour.".into();
+                } else {
+                    match i {
+                        0 => { options = false; notice = "Tap the map to recruit or command.".into(); }
+                        1 => {
+                            world.step();
+                            if world.tick % 24 == 0 { observer.observe(&world); }
+                            running = false;
+                            notice = "Advanced one simulation tick.".into();
+                        }
+                        2 => { speed = match speed { 2 => 8, 8 => 24, _ => 2 };
+                            notice = format!("Simulation speed: {speed} ticks/sec."); }
+                        3 => show_food = !show_food,
+                        4 => show_groups = !show_groups,
+                        5 => show_links = !show_links,
+                        6 => world.rules.sharing = !world.rules.sharing,
+                        7 => zoom = (zoom / 1.6).max(1.0),
+                        8 => { center = vec2(64.0, 64.0); zoom = 1.0; }
+                        _ => {}
                     }
-                    9 => world.rules.sharing = !world.rules.sharing,
-                    10 => show_groups = !show_groups,
-                    11 => show_links = !show_links,
-                    12 => show_food = !show_food,
-                    13 => zoom = (zoom / 1.6).max(1.0),
-                    14 => zoom = (zoom * 1.6).min(14.0),
-                    15 => { zoom = 1.0; center = vec2(64.0, 64.0); }
-                    _ => {}
                 }
                 previous_pointer = None;
             } else if board.contains(p) {
@@ -244,35 +278,37 @@ async fn main() {
                 let world_y = (visible.y + (p.y - board.y) / board.h * visible.h).floor() as i16;
                 let target = (world_x.clamp(0, SIDE as i16 - 1),
                     world_y.clamp(0, SIDE as i16 - 1));
-                if let Some(action) = pending.take() {
+                // One-tap onboarding: without a squad, any tap recruits;
+                // with a squad, a simple tap issues MOVE without another menu.
+                let action = pending.take().or_else(|| if world.squad.is_none() {
+                    Some(Pending::Recruit)
+                } else {
+                    Some(Pending::Move)
+                });
+                if let Some(action) = action {
                     match action {
                         Pending::Recruit => {
                             let count = world.recruit_nearest(target, 8);
-                            notice = format!("Recruited {count} existing agents; select MOVE or HOLD.");
+                            if count > 0 {
+                                running = true;
+                                notice = format!("{} recruited. Tap the map to MOVE, or choose HOLD.", count);
+                            } else { notice = "No living agents available for recruitment.".into(); }
                         }
                         Pending::Move => {
-                            world.issue_order(Order::Move, target);
-                            notice = format!("Move order → ({}, {}).", target.0, target.1);
+                            if world.issue_order(Order::Move, target) {
+                                running = true;
+                                notice = format!("MOVE to ({}, {}). Watch cyan soldiers.", target.0, target.1);
+                            }
                         }
                         Pending::Hold => {
-                            world.issue_order(Order::Hold, target);
-                            notice = format!("Hold & contest food access near ({}, {}).", target.0, target.1);
+                            if world.issue_order(Order::Hold, target) {
+                                running = true;
+                                notice = format!("HOLD near ({}, {}). Outnumbered guards can lose.", target.0, target.1);
+                            }
                         }
                     }
-                } else {
-                    let mut nearest: Option<usize> = None;
-                    let mut best = 11.0_f32;
-                    for (i, agent) in world.agents.iter().enumerate() {
-                        let position = point_to_screen(
-                            agent.x as f32 + 0.5, agent.y as f32 + 0.5, board, visible);
-                        let distance = position.distance(p);
-                        if distance < best {
-                            best = distance;
-                            nearest = Some(i);
-                        }
-                    }
-                    selected = nearest;
                 }
+
             }
         }
 
@@ -293,12 +329,13 @@ async fn main() {
         }
 
         clear_background(Color::from_rgba(11, 18, 29, 255));
-        draw_text("GENESIS", 12.0, 34.0, 32.0, WHITE);
-        draw_text("FIRST ARMY  /  AUTONOMOUS SOCIETY", 13.0, 54.0, 15.0, LIGHTGRAY);
-        draw_text(&format!("Tick {}   Alive {}   Groups {}   Soldiers {}",
+        draw_text("GENESIS", 12.0, 34.0, 30.0, WHITE);
+        draw_text("COMMAND THE ARMY. THE WORLD RUNS ITSELF.", 13.0, 55.0,
+            if sw < 410.0 { 12.0 } else { 15.0 }, LIGHTGRAY);
+        draw_text(&format!("Tick {}   Alive {}   Groups {}   Army {}",
             world.tick, world.alive_count(), observer.stable_groups(), world.soldier_count()),
             13.0, 77.0, 17.0, Color::from_rgba(191, 211, 228, 255));
-        draw_text(&format!("Access denied {}  Overrun {}  Seed {}",
+        draw_text(&format!("Denied {}  Overrun {}  World {}",
             world.cumulative_access_denied, world.cumulative_access_overrun, seed),
             13.0, 95.0, 13.0, Color::from_rgba(143, 165, 180, 255));
 
@@ -417,47 +454,79 @@ async fn main() {
         draw_rectangle_lines(board.x, board.y, board.w, board.h, 1.0,
             Color::from_rgba(78, 104, 129, 255));
 
-        let hint_y = board.y + board.h + 18.0;
-        if let Some(id) = selected {
-            let a = world.agents[id];
-            let group = membership[id].map(|id| format!("Group {}", id))
-                .unwrap_or_else(|| "No detected group".into());
-            draw_text(&format!("Dot {}: {} E{}  |  {}",
-                id + 1, if world.soldier(id) { "SOLDIER" } else { "CIVILIAN" }, a.energy, group),
-                12.0, hint_y, 13.0, LIGHTGRAY);
+        // Two lines of immediately actionable guidance, on every device.
+        // No technical terminology and no unreadable 10pt footer instruction.
+        let hint_x = if wide { panel_x + 13.0 } else { 12.0 };
+        let hint_y = if wide { 100.0 } else { board.y + board.h + 20.0 };
+        let hint_width = if wide { panel_w - 25.0 } else { sw - 25.0 };
+        let hint_bg_h = if wide { 60.0 } else { 67.0 };
+        draw_rectangle(hint_x - 4.0, hint_y - 16.0, hint_width, hint_bg_h,
+            Color::from_rgba(29, 49, 66, 255));
+        let instruction = if world.squad.is_none() {
+            "1. TAP THE MAP TO RECRUIT 8 PEOPLE"
+        } else if pending == Some(Pending::Recruit) {
+            "TAP NEAR PEOPLE TO RECRUIT AGAIN"
+        } else if pending == Some(Pending::Move) {
+            "TAP THE MAP TO CHOOSE WHERE TO MOVE"
+        } else if pending == Some(Pending::Hold) {
+            "TAP A GREEN AREA TO HOLD IT"
         } else {
-            let description = if pending.is_some() {
-                "TAP THE MAP TO PLACE YOUR ORDER"
-            } else {
-                "Blue dots: soldiers   •   White: civilians   •   Green: food"
-            };
-            draw_text(description, 12.0, hint_y, 13.0, LIGHTGRAY);
-        }
+            "2. TAP MAP TO MOVE. OR PRESS HOLD."
+        };
+        let instruction_size = (hint_width / (instruction.len() as f32 * 0.58))
+            .clamp(11.0, 17.0);
+        draw_text(instruction, hint_x + 5.0, hint_y + 5.0,
+            instruction_size, Color::from_rgba(139, 224, 244, 255));
+        let sentence = if let Some(id) = selected {
+            let a = world.agents[id];
+            format!("Person {}: {} energy, {}",
+                id + 1, a.energy, if world.soldier(id) { "soldier" } else { "civilian" })
+        } else if let Some(squad) = &world.squad {
+            format!("Squad: {} alive. Order: {}. Speed: {}x",
+                world.soldier_count(), squad.order.name(), speed)
+        } else {
+            "White dots: people. Green: food. Cyan: your army.".into()
+        };
+        draw_text(&sentence, hint_x + 5.0, hint_y + 26.0,
+            (hint_width / (sentence.len() as f32 * 0.57)).clamp(11., 15.),
+            Color::from_rgba(216, 227, 240, 255));
 
-        let labels = [
-            if running { "PAUSE" } else { "RUN" }, "STEP", "SPEED", "NEW WORLD",
-            "RECRUIT", "MOVE", "HOLD", "RETREAT",
-            "DISBAND", if world.rules.sharing { "SHARE ON" } else { "SHARE OFF" },
-            if show_groups { "GROUPS ON" } else { "GROUPS OFF" },
-            if show_links { "LINES ON" } else { "LINES OFF" },
-            if show_food { "FOOD ON" } else { "FOOD OFF" },
-            "ZOOM -", "ZOOM +", "CENTER",
-        ];
+        let labels = if options {
+            [
+                "BACK", "STEP", "SPEED",
+                if show_food { "FOOD ON" } else { "FOOD OFF" },
+                if show_groups { "GROUPS ON" } else { "GROUPS OFF" },
+                if show_links { "LINES ON" } else { "LINES OFF" },
+                if world.rules.sharing { "SHARE ON" } else { "SHARE OFF" },
+                "ZOOM -", "CENTER",
+            ]
+        } else {
+            [
+                if running { "PAUSE" } else { "PLAY" }, "RECRUIT", "NEW WORLD",
+                "MOVE", "HOLD", "RETREAT",
+                "DISBAND", "ZOOM +", "OPTIONS",
+            ]
+        };
         for (i, rect) in buttons.iter().enumerate() {
-            button(*rect, labels[i], match i {
-                0 => running,
-                4 => pending == Some(Pending::Recruit),
-                5 => pending == Some(Pending::Move),
-                6 => pending == Some(Pending::Hold),
-                9 => world.rules.sharing,
-                10 => show_groups,
-                11 => show_links,
-                12 => show_food,
-                _ => false,
+            button(*rect, labels[i], if options {
+                match i {
+                    3 => show_food, 4 => show_groups, 5 => show_links,
+                    6 => world.rules.sharing, _ => false,
+                }
+            } else {
+                match i {
+                    0 => running,
+                    1 => pending == Some(Pending::Recruit),
+                    3 => pending == Some(Pending::Move),
+                    4 => pending == Some(Pending::Hold),
+                    _ => false,
+                }
             });
         }
-        draw_text(&notice.chars().take(70).collect::<String>(),
-            11.0, sh - 10.0, 11.0, LIGHTGRAY);
+        let footer = if wide { controls_y + 195.0 } else { sh - 9.0 };
+        let bottom_x = if wide { panel_x + 12.0 } else { 12.0 };
+        let display = notice.chars().take(56).collect::<String>();
+        draw_text(&display, bottom_x, footer, 12.0, LIGHTGRAY);
         next_frame().await;
     }
 }
