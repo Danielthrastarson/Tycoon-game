@@ -63,9 +63,10 @@ for(const s of cases) {
    const ix=(im.width*Math.floor(p.y)+Math.floor(p.x))*4;
    return [...im.data.subarray(ix,ix+3)];
  };
- const initialButton=await sample(btn(0));
+ const buttonBackground=()=>sample({x:railx+18,y:controlsy+8});
+ const initialButton=await buttonBackground();
  await tap(btn(0)); // PAUSE
- const pausedButton=await sample(btn(0));
+ const pausedButton=await buttonBackground();
  if(initialButton[1]===pausedButton[1] && initialButton[2]===pausedButton[2])
    throw Error(s.name+': PLAY button did not switch its visual state');
  await tap(btn(0)); // resume
@@ -91,7 +92,7 @@ for(const s of cases) {
  await tap(btn(7));
  await page.waitForTimeout(420);
  const viewBefore=PNG.sync.read(await page.screenshot({scale:'css'}));
- const pausedBefore=await sample(btn(0));
+ const pausedBefore=await buttonBackground();
  const from=map(49,29),to=map(32,29);
  const drag=async()=>{
    if(s.mobile) {
@@ -135,7 +136,7 @@ for(const s of cases) {
    }
  if(changed<90)
    throw Error(s.name+': drag failed to pan camera; changed sampled pixels='+changed);
- const pausedAfter=await sample(btn(0));
+ const pausedAfter=await buttonBackground();
  if(pausedAfter.some((v,i)=>Math.abs(v-pausedBefore[i])>12))
    throw Error(s.name+': drag accidentally resumed the game / issued order');
  await tap(btn(1)); // new world resets
