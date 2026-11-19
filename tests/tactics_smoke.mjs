@@ -151,6 +151,17 @@ for(const d of cases){
   const afterPanColor=await color(page,utilitySample);
   if(afterPanColor.some((v,i)=>Math.abs(v-pauseColor[i])>16))
     throw Error(d.name+': dragging unexpectedly resumed simulation');
+  // The minimap is critical for tall portrait phones: it must recenter
+  // the full-world camera, never issue an attack command.
+  const miniWidth=Math.min(board.w-12,Math.max(110,Math.min(155,board.w*.32)));
+  const mini={x:board.x+board.w-miniWidth-9,y:board.y+9,
+    w:miniWidth,h:miniWidth*9/15};
+  const beforeMini=await screenshot(page);
+  await tap({x:mini.x+mini.w*.10,y:mini.y+mini.h*.55});
+  const afterMini=await screenshot(page);
+  const minimapChanged=diff(beforeMini,afterMini,board);
+  if(minimapChanged<65)
+    throw Error(d.name+': tappable minimap did not recenter camera');
   await tap(util(2)); // new map
   await page.waitForTimeout(350);
   await page.screenshot({path:path.join(out,d.name+'-new-map.png'),scale:'css'});
@@ -158,7 +169,8 @@ for(const d of cases){
     getComputedStyle(el).display!=='none');
   if(err)throw Error(d.name+': startup error shown after gameplay');
   console.log(JSON.stringify({device:d.name,canvas:meta,colors:colors.size,
-    panChangedPixels:change,orders:'attack/hold/retreat',
+    panChangedPixels:change,minimapChangedPixels:minimapChanged,
+    orders:'attack/hold/retreat',
     controls:'play/pause/zoom/new-map/touch',result:'PASS'}));
   await ctx.close();
 }
