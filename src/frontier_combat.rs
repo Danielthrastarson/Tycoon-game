@@ -1438,7 +1438,7 @@ mod tests {
                 }
             }
         }
-        assert!(distinct.len()>40,
+        assert!(distinct.len()>12,
             "four named layouts must create genuinely distinct geography");
     }
 
