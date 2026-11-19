@@ -9,6 +9,7 @@
 //! All 16 ablation masks reuse the SAME seeded battlefield and starting teams.
 
 use crate::frontier::{Order, Terrain};
+use std::collections::VecDeque;
 
 pub const FIELD_WIDTH: i16 = 15;
 pub const FIELD_HEIGHT: i16 = 9;
@@ -19,6 +20,27 @@ const CELLS: usize = FIELD_WIDTH as usize * FIELD_HEIGHT as usize;
 const START_RESERVE: u16 = 400;
 const START_PROVISIONS: u8 = 6;
 const PASS: (i16, i16) = (7, 4);
+
+/// Four reproducible cartographic archetypes. Physical barriers remain the
+/// same under every experimental combat-factor mask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Layout {
+    Classic, Ridge, RiverFord, SplitValley,
+}
+impl Layout {
+    pub const ALL:[Self;4]=[
+        Self::Classic,Self::Ridge,Self::RiverFord,Self::SplitValley
+    ];
+    pub fn label(self)->&'static str {
+        match self {
+            Self::Classic=>"classic",
+            Self::Ridge=>"ridge",
+            Self::RiverFord=>"river_ford",
+            Self::SplitValley=>"split_valley",
+        }
+    }
+}
+
 /// Explicitly observable mission objectives, not bonuses to a chosen AI.
 pub const MOUNTAIN_DEFEND_ROUNDS: u16 = 24;
 pub const BREAKTHROUGH_ROUNDS: u8 = 3;
@@ -116,10 +138,16 @@ impl Policy {
 /// The standard opponent is the V0.4.2 reference baseline. Counter is
 /// a tougher, responsive adversary evaluated as a separate stress test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OpponentPolicy { Standard, Counter }
+pub enum OpponentPolicy { Standard, Counter, Pincer, Fortress }
 impl OpponentPolicy {
+    pub const ALL:[Self;4]=[
+        Self::Standard,Self::Counter,Self::Pincer,Self::Fortress
+    ];
     pub fn label(self)->&'static str {
-        match self {Self::Standard=>"standard",Self::Counter=>"counter"}
+        match self {
+            Self::Standard=>"standard",Self::Counter=>"counter",
+            Self::Pincer=>"pincer",Self::Fortress=>"fortress",
+        }
     }
 }
 
@@ -168,6 +196,9 @@ pub struct TeamStats {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Battle {
     pub scenario: Scenario,
+    pub layout: Layout,
+    /// Actual objective coordinate, varied by seeded map geometry.
+    pub objective: (i16,i16),
     pub policy: Policy,
     pub opponent: OpponentPolicy,
     pub rules: CombatRules,
@@ -263,7 +294,8 @@ impl Battle {
                 order:Order::Hold,destination:pos,routing:false }
         };
         Self {
-            scenario,policy,opponent:OpponentPolicy::Standard,rules,
+            scenario,layout:Layout::Classic,objective:PASS,
+            policy,opponent:OpponentPolicy::Standard,rules,
             seed,swap,round:0,map,
             units:[
                 make_unit(0,Role::Main,(main_small,small_y),split_small),
@@ -290,6 +322,82 @@ impl Battle {
         self
     }
 
+    /// Rebuild only the experimental geography and initial positions.
+    /// This method must be used before advancing any combat rounds.
+    pub fn with_layout(mut self, layout:Layout)->Self {
+        self.layout=layout;
+        if layout==Layout::Classic {return self;}
+        let cy=2+(hash(self.seed,0x4f02+layout as u64)%5) as i16;
+        self.objective=(7,cy);
+        self.depots=if self.swap {[(13,cy),(1,cy)]} else {[(1,cy),(13,cy)]};
+        let mut map=[Terrain::Plain;CELLS];
+        for y in 0..FIELD_HEIGHT {
+            for x in 2..FIELD_WIDTH-2 {
+                let n=hash(self.seed,((x*23+y*43) as u64)+layout as u64*719);
+                if n%9==0 {map[index((x,y))]=Terrain::Forest;}
+                else if n%23==0 {map[index((x,y))]=Terrain::Mountain;}
+            }
+        }
+        match layout {
+            Layout::Classic=>unreachable!(),
+            Layout::Ridge=>{
+                // Thick traversable ridgeline with widely varying defense.
+                for y in 0..FIELD_HEIGHT {
+                    map[index((7,y))]=Terrain::Mountain;
+                    if (y-cy).abs()<=2 {
+                        map[index((6,y))]=Terrain::Forest;
+                        map[index((8,y))]=Terrain::Forest;
+                    }
+                }
+            }
+            Layout::RiverFord=>{
+                // Water barrier with two genuine crossings, including the
+                // objective's ford. The flanking ford varies with seed.
+                let second=if cy<=4 {7}else{1};
+                for y in 0..FIELD_HEIGHT {
+                    if y!=cy && y!=second {map[index((7,y))]=Terrain::Sea;}
+                    else {map[index((7,y))]=Terrain::Mountain;}
+                }
+            }
+            Layout::SplitValley=>{
+                // Double barrier, staggered east/west alternate passes.
+                let second=if cy<=4 {7}else{1};
+                for y in 0..FIELD_HEIGHT {
+                    if y!=cy && y!=second {
+                        map[index((6,y))]=Terrain::Sea;
+                    }
+                    if y!=cy && y!=(8-second) {
+                        map[index((8,y))]=Terrain::Sea;
+                    }
+                }
+                map[index((7,cy))]=Terrain::Mountain;
+            }
+        }
+        // No mission or initial army may be placed inside water.
+        map[index(self.objective)]=if self.scenario==Scenario::MountainPass {
+            Terrain::Mountain
+        } else {Terrain::Plain};
+        for d in self.depots {map[index(d)]=Terrain::Plain;}
+        self.units[0].pos=if self.scenario==Scenario::MountainPass {
+            self.objective
+        } else {(if self.swap {9}else{5},cy)};
+        self.units[1].pos=(if self.swap {11}else{3},1);
+        self.units[2].pos=(if self.swap {4}else{10},cy);
+        self.units[3].pos=(if self.swap {3}else{11},7);
+        for u in &mut self.units {
+            map[index(u.pos)]=Terrain::Plain;
+            u.destination=u.pos;
+            u.order=Order::Hold;
+        }
+        if self.scenario==Scenario::MountainPass {
+            map[index(self.objective)]=Terrain::Mountain;
+        }
+        // Seed-dependent road texture and ridgeline are shared across all
+        // policies, side assignments and ablations for one map/seed pairing.
+        self.map=map;
+        self
+    }
+
     pub fn terrain_at(&self,p:(i16,i16))->Terrain {
         self.map[index(clamp_pos(p))]
     }
@@ -305,12 +413,14 @@ impl Battle {
     }
 
     fn breakthrough_target(&self)->(i16,i16) {
-        if self.swap {(10,4)} else {(4,4)}
+        if self.swap {(10,self.objective.1)} else {(4,self.objective.1)}
     }
 
     fn corridor_target(&self)->(i16,i16) {
         let depot=self.depots[1];
-        if depot.0>PASS.0 {(10,4)} else {(4,4)}
+        if depot.0>self.objective.0 {
+            (10,self.objective.1)
+        } else {(4,self.objective.1)}
     }
 
     pub fn supplies_balanced(&self,team:usize)->bool {
@@ -338,7 +448,7 @@ impl Battle {
             } else {
                 enemy.pos.0<=depot.0 && enemy.pos.0>u.pos.0
             };
-            if behind && (enemy.pos.1-4).abs()<=1 {
+            if behind && (enemy.pos.1-self.objective.1).abs()<=1 {
                 return false;
             }
         }
@@ -710,7 +820,7 @@ impl Battle {
         if enemy.troops==0 {return false;}
         let depot=self.depots[defender];
         self.units.iter().any(|u|u.side as usize==side &&
-            u.troops>=15 && (u.pos.1-4).abs()<=1 &&
+            u.troops>=15 && (u.pos.1-self.objective.1).abs()<=1 &&
             (if depot.0<enemy.pos.0 {
                 u.pos.0>depot.0 && u.pos.0<enemy.pos.0
             } else {
