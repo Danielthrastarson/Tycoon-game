@@ -8,6 +8,7 @@ on:
       - src/lib.rs
       - docs/combat_v04_protocol.md
       - docs/combat_v042_objectives.md
+      - docs/combat_v042_screening_results.md
       - scripts/analyze_combat_v04.py
       - .github/workflows/combat-lab.yml
   workflow_dispatch:
