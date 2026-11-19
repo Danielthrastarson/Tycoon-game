@@ -42,9 +42,9 @@ struct Options {
 
 fn help() -> &'static str {
     "Genesis V0.4 tactical combat laboratory\n\
-Usage: combat_lab [--seeds N] [--ablation all|full|MASK] [--layout all|classic|ridge|river_ford|split_valley] [--opponent standard|counter|pincer|fortress] [--phase screening|holdout] [--output FILE]\n\
+Usage: combat_lab [--seeds N] [--ablation all|core|full|MASK] [--layout all|classic|ridge|river_ford|split_valley] [--opponent standard|counter|pincer|fortress] [--phase screening|holdout] [--output FILE]\n\
   --seeds      Default 32 for screening, 256 for holdout; max 2048\n\
-  --ablation   all = 16 masks; full = all four enabled (mask 15); or integer 0..15\n\
+  --ablation   all = 16 masks; core = 0,7,11,13,14,15; full = mask 15; or 0..15\n\
   --layout     all (default), classic, ridge, river_ford, split_valley\n\
   --opponent   standard (default), counter, pincer, fortress\n\
   --phase      screening uses seeds 1000..; holdout uses previously unused 900000..\n\
@@ -107,6 +107,7 @@ fn parse_options()->Result<Options,String> {
                 masks=match value.as_str() {
                     "all"=>(0..16).collect(),
                     "full"=>vec![15],
+                    "core"=>vec![0,7,11,13,14,15],
                     _=>{
                         let n=value.parse::<u8>()
                             .map_err(|_|"invalid --ablation mask")?;
