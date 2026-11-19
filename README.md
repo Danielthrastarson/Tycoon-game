@@ -10,24 +10,24 @@ A minimal civilization-emergence **prototype**, not a simulation of full civiliz
 - A 128×128 two-dimensional world and **100 agents** initially without factions, labels, borders or leaders.
 - Resource-rich patches generated from a reproducible seed.
 - Every agent has a bounded internal energy budget and limited, local resource memory.
-- Each agent can **move**, **gather**, **transfer surplus energy** to a nearby hungry agent, and **communicate remembered food locations during transfers**.
+- Each agent can **move**, **gather**, **communicate** with a nearby agent, and **transfer surplus energy** to a hungry neighbour. Local conversations can pass on remembered food locations.
 - Gathering moves energy from resource tiles to agents; consumption removes energy; regeneration introduces energy. A tick ledger explicitly accounts for all changes.
 - Energy-starved agents become inactive. No births or reproduction in this milestone.
 - **No predefined kingdoms, settlements, groups, property, currencies, war, technology or scripted empire events.**
 - Agent foraging and resource sharing are **programmed capabilities/policies**; their presence must not be misrepresented as emergent intelligence.
-- The group observer merely labels connected networks of 3 or more living agents with strong ties *earned by real transfers* and seen for 3 observation intervals. Group colors, dots and dotted circles are visualizations, not a change in agent behavior or ownership rights.
-- Group creation, stability, survival and cooperation advantages are **not guaranteed**, and require controlled experiments to establish.
+- The group observer merely labels connected networks of 3 or more living agents with strong ties *earned by repeated nearby communication or resource transfers* and seen for 3 observation intervals. Group colors, dots and dotted circles are visualizations, not a change in agent behavior or ownership rights.
+- Group formation, stability, survival and cooperation advantages are **not guaranteed**, and require controlled experiments to establish. A visible group is a social-contact cluster, not yet a proven cooperative settlement.
 
 ## Visual language
 - Small light dots: agents without observed group membership.
 - Colored dots: members of a persistent, observed exchange network.
-- Fine lines: repeated sharing relationships.
+- Fine lines: repeated interactions (communication and/or sharing), not proof of cooperation.
 - Green background pixels: replenishable resources.
 - Dashed rings and names: observed group footprints, *not territory ownership*.
 
 ## Phone controls
 - **PAUSE/RUN**, **STEP**, **SPEED**: 2, 8, or 24 ticks per second.
-- **SHARE ON/OFF**: change one physics rule for an explicit experiment.
+- **SHARE ON/OFF**: disable energy transfers while leaving local communication enabled, for a controlled experiment.
 - **GROUPS**, **LINES**, **FOOD**: independently toggle purely visual layers.
 - **NEW WORLD**: next deterministic seed and a complete reset.
 - **ZOOM ±**, drag and pinch: camera controls; camera never alters physics.
@@ -60,7 +60,7 @@ Open [Tycoon-game](https://github.com/Danielthrastarson/Tycoon-game), create a G
 ## Limitations and next experiments
 - Fixed heuristic foraging/sharing, not learning or autonomous invention.
 - Agent population cannot reproduce.
-- Group detection based on graph connectivity; a group is not a kingdom.
+- Group detection based on repeated communication and transfer graph connectivity; a group is not a kingdom, an ownership claim, or by itself proof of mutually beneficial cooperation.
 - No enforceable claims on territory, no social norms or institutions.
 - Resource generation and movement occur on a periodic toroidal 2D grid.
 - Need many-seed controls before claiming sharing improves survival or yields durable settlements.
