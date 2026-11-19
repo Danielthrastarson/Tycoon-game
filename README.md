@@ -45,8 +45,8 @@ A named hamlet is evidence for persistent occupied infrastructure **under this s
 - **Cyan outlined dots:** your player-commanded squad, using real citizens.
 - **Green pixels:** local resource stocks.
 - **Amber squares:** physically constructed camps; gray squares show abandoned structures.
-- **Amber dotted rings / HAMLET labels:** observed persistent residential clusters, not government borders.
-- **Thin social lines:** repeated local interactions.
+- **HAMLET labels:** only the most populous, non-overlapping labels appear on the world overview; zoom in for more names and amber locality rings. They are not government borders.
+- **Colored dots:** observed social interaction networks. Thin relationship lines and social boundaries appear when zoomed in so they do not clutter the overview.
 - **Main menu:** PLAY/PAUSE, RECRUIT, NEW WORLD, MOVE, HOLD, RETREAT, DISBAND, ZOOM+, OPTIONS.
 - **OPTIONS:** STEP, SPEED, FOOD, GROUPS, LINES, SHARE, ZOOM−, CENTER.
 
