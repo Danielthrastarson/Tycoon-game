@@ -207,24 +207,26 @@ async fn main() {
         let active:Vec<_>=touch_list.iter()
             .filter(|t|!matches!(t.phase,TouchPhase::Ended|TouchPhase::Cancelled))
             .collect();
-        let has_touch=!touch_list.is_empty();
-        let pointer_start=if has_touch {
-            touch_list.iter().find(|t|t.phase==TouchPhase::Started)
-                .map(|t|t.position)
-        } else if is_mouse_button_pressed(MouseButton::Left) {
-            let (x,y)=mouse_position(); Some(vec2(x,y))
-        } else {None};
-        let pointer_current=if has_touch {
-            active.first().map(|t|t.position)
-        } else if is_mouse_button_down(MouseButton::Left) {
-            let (x,y)=mouse_position(); Some(vec2(x,y))
-        } else {None};
-        let pointer_end=if has_touch {
-            touch_list.iter().find(|t|t.phase==TouchPhase::Ended)
-                .map(|t|t.position)
-        } else if is_mouse_button_released(MouseButton::Left) {
-            let (x,y)=mouse_position(); Some(vec2(x,y))
-        } else {None};
+        // Some mobile browsers deliver the touch and synthetic mouse
+        // transitions in different frames. Preserve the old mouse fallback
+        // instead of suppressing it merely because a touch entry exists.
+        let pointer_start=touch_list.iter()
+            .find(|t|t.phase==TouchPhase::Started)
+            .map(|t|t.position)
+            .or_else(|| if is_mouse_button_pressed(MouseButton::Left) {
+                let (x,y)=mouse_position();Some(vec2(x,y))
+            } else {None});
+        let pointer_current=active.first()
+            .map(|t|t.position)
+            .or_else(|| if is_mouse_button_down(MouseButton::Left) {
+                let (x,y)=mouse_position();Some(vec2(x,y))
+            } else {None});
+        let pointer_end=touch_list.iter()
+            .find(|t|t.phase==TouchPhase::Ended)
+            .map(|t|t.position)
+            .or_else(|| if is_mouse_button_released(MouseButton::Left) {
+                let (x,y)=mouse_position();Some(vec2(x,y))
+            } else {None});
 
         if active.len()>=2 {
             suppress_single_touch=true;
