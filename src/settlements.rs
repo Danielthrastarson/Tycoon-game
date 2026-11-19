@@ -135,10 +135,17 @@ impl Settlement {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SettlementObserver {
     pub settlements: Vec<Settlement>,
+    last_observed_tick: Option<u64>,
 }
 
 impl SettlementObserver {
     pub fn observe(&mut self, world: &World) {
+        // A settlement must be continuously occupied over *simulation time*;
+        // repeatedly calling the observer on the same frame is not evidence.
+        if let Some(last) = self.last_observed_tick {
+            if world.tick < last.saturating_add(24) { return; }
+        }
+        self.last_observed_tick = Some(world.tick);
         let mut next = Vec::new();
         for (index,camp) in world.camps.iter().enumerate() {
             if world.tick.saturating_sub(camp.last_used_tick) > 48 { continue; }
@@ -237,13 +244,24 @@ mod tests {
             w.agents[i].alive=true;
         }
         for i in 3..100 { w.agents[i].x=60;w.agents[i].y=60; }
-        let snapshot = w.clone();
         let mut observer = SettlementObserver::default();
-        for _ in 0..3 { observer.observe(&w); }
+        let snapshot = w.clone();
+        observer.observe(&w);
+        observer.observe(&w);
+        assert_eq!(observer.stable_count(),0,
+            "duplicate same-tick observations cannot prove persistence");
+        assert_eq!(w,snapshot,"observer must not change the world");
+        for tick in [124_u64,148] {
+            w.tick=tick;
+            w.camps[0].last_used_tick=tick;
+            let before=w.clone();
+            observer.observe(&w);
+            assert_eq!(w,before,"observer must be read-only");
+        }
         assert_eq!(observer.stable_count(),1);
         assert_eq!(observer.covered_population(&w),3);
-        assert_eq!(w,snapshot);
         for i in 0..3 { w.agents[i].x=60;w.agents[i].y=60; }
+        w.tick=172;
         observer.observe(&w);
         assert_eq!(observer.stable_count(),0);
         assert_eq!(w.camps.len(),1,"physical ruins persist");
