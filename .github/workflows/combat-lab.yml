@@ -1,0 +1,35 @@
+name: Genesis V0.4 — Tactical Ablation Laboratory
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - src/frontier_combat.rs
+      - src/bin/combat_lab.rs
+      - src/lib.rs
+      - docs/combat_v04_protocol.md
+      - .github/workflows/combat-lab.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Deterministic invariants, ablation isolation and replay
+        run: cargo test --lib frontier_combat
+      - name: Complete 16-mask matched-seed screening
+        run: |
+          cargo run --release --bin combat_lab -- \
+            --seeds 32 --ablation all --phase screening \
+            --output results/combat_v04_screening.csv
+          test "$(wc -l < results/combat_v04_screening.csv)" -eq 12289
+          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v04_screening.csv
+      - name: Preserve raw experimental evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: genesis-v04-16-factor-screening
+          path: results/combat_v04_screening.csv
+          retention-days: 45
