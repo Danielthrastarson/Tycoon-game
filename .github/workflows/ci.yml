@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [genesis-v04-first-army]
+    branches: [genesis-v05-settlement-emergence]
 permissions:
   contents: read
 jobs:
@@ -22,6 +22,8 @@ jobs:
         run: cargo run --release --bin society_lab -- 1500 4
       - name: Deterministic army, logistics and resource contests
         run: cargo run --release --bin military_lab -- 350 4
+      - name: Check autonomous settlement formation and no-construction controls
+        run: cargo run --release --bin settlement_lab -- 1000 4
       - name: Compile all three browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
