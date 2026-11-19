@@ -78,8 +78,10 @@ jobs:
           SITE_URL="${SITE_URL%/}/"
           for attempt in $(seq 1 12); do
             if curl --max-time 10 -fsSL "$SITE_URL" | grep -q "game.wasm" &&
-               curl --max-time 10 -fsSI "${SITE_URL}game.wasm" >/dev/null; then
-              echo "Verified public HTML and WASM: $SITE_URL"
+               curl --max-time 10 -fsSI "${SITE_URL}game.wasm" >/dev/null &&
+               curl --max-time 10 -fsSL "${SITE_URL}frontier.html" | grep -q "frontier.wasm" &&
+               curl --max-time 10 -fsSI "${SITE_URL}frontier.wasm" >/dev/null; then
+              echo "Verified original game and public Frontier HTML/WASM: ${SITE_URL}frontier.html"
               exit 0
             fi
             echo "Public assets not ready (attempt $attempt/12)"
