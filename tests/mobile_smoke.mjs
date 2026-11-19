@@ -9,6 +9,7 @@ import path from 'node:path';
 const output = path.resolve('playtest-artifacts');
 fs.mkdirSync(output, {recursive:true});
 const chrome = await chromium.launch({
+  ...(process.env.GENESIS_CHROME_BIN ? {executablePath:process.env.GENESIS_CHROME_BIN} : {}),
   headless:true,
   args:['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl', '--no-sandbox']
 });
