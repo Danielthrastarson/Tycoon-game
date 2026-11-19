@@ -24,6 +24,42 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## Genesis Frontier V0.4.4 — playable tactical siege
+
+**[Play Tactical Siege](https://danielthrastarson.github.io/Tycoon-game/tactics.html)**
+— a mobile-friendly human-controlled battle built on the same
+authoritative Rust `frontier_combat::Battle` simulation as the
+seeded experimental combat laboratory.
+
+The first playable mission is **defend the mountain pass for 24
+continuous tactical rounds**, with a 400-soldier army (300 main,
+100 scout) against 650 enemy soldiers controlled by Counter AI.
+The opponent can win by passing through your defense and occupying
+your rear objective; you can hold the pass or make a real tactical
+interdiction/depot attack. The outcome is reported from actual
+simulation state, not a scripted UI victory.
+
+**Controls:** tap MAIN or SCOUT to select a unit, choose MOVE or
+ATTACK then tap the world to choose a destination. HOLD and RETREAT
+take effect immediately. Drag the world to pan, pinch or +/- to
+zoom, or tap the small OVERVIEW map to jump elsewhere.
+PLAY/PAUSE and 1X/2X control simulation time. NEW MAP rotates
+through Ridge, River Ford and Split Valley; no win/loss is
+automatic without simulation rounds.
+
+**Feedback:** authoritative unit orders, moving formations,
+BFS path preview, army strength, morale, fatigue, carried
+provisions, supply connectivity, combat losses and a clear
+win/loss/draw explanation. Touch controls, responsive layout
+and the original Frontier game have automated browser checks.
+
+**Scope:** This tactical slice is a separate game page.
+The existing kingdom-level Frontier V0.3 and the frozen V0.4.3
+holdout experiment remain unmodified. The supply system remains
+the lab's simplified **corridor model**, not a fully realistic
+path-connected logistics or economy simulator. These are
+gameplay candidate rules, not empirically calibrated warfare.
+
 ## Genesis V0.4.3 — diverse tactical laboratory, frozen holdout complete
 
 The separate Rust tactical laboratory now evaluates **four seeded geography
