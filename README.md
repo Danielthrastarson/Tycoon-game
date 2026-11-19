@@ -24,6 +24,26 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## Genesis V0.4.3 — diverse tactical laboratory, frozen holdout complete
+
+The separate Rust tactical laboratory now evaluates **four seeded geography
+layouts and four AI opponent tactics**, with real pathfinding around water,
+pass-defense and logistics objectives, and four toggleable combat mechanisms.
+All of this is **laboratory-only**: the playable Genesis Frontier game is
+unchanged.
+
+After a 262,144-run development screening, code and analysis procedures
+were frozen and evaluated against 256 previously unused holdout seeds.
+The one predeclared Counter-AI mountain-defense comparison passed:
+Adaptive won **975/1,536** matched battles versus **0/1,536** for
+DirectRush (+63.5 percentage points; seed-clustered bootstrap
+95% interval +62.6 to +64.3 points). This is evidence for one narrow
+tactical hypothesis, not proof of game balance or fun.
+
+[Read the complete frozen results and limitations](docs/combat_v043_holdout_results.md).
+The raw matched-seed CSVs and statistical reports are preserved under
+[the GitHub Actions holdout run](https://github.com/Danielthrastarson/Tycoon-game/actions/runs/44579378663).
+
 ## Genesis V0.4.2 — experimentally test physical objectives
 
 V0.4.2 is a **headless laboratory update**, not a change to the playable
