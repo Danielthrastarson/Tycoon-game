@@ -3,7 +3,7 @@
 use genesis::settlements::SettlementObserver;
 use genesis::society::World;
 
-fn run(seed: u64, ticks: u64, construction: bool) -> (usize,usize,usize,u64,u64,u64) {
+fn run(seed: u64, ticks: u64, construction: bool) -> (usize,usize,usize,usize,u64,u64) {
     let mut world = World::new(seed);
     world.rules.construction = construction;
     let mut observed = SettlementObserver::default();
