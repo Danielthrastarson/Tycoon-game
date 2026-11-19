@@ -19,6 +19,11 @@ const CELLS: usize = FIELD_WIDTH as usize * FIELD_HEIGHT as usize;
 const START_RESERVE: u16 = 400;
 const START_PROVISIONS: u8 = 6;
 const PASS: (i16, i16) = (7, 4);
+/// Explicitly observable mission objectives, not bonuses to a chosen AI.
+pub const MOUNTAIN_DEFEND_ROUNDS: u16 = 24;
+pub const BREAKTHROUGH_ROUNDS: u8 = 3;
+pub const INTERDICTION_ROUNDS: u8 = 5;
+pub const OPEN_CONTROL_ROUNDS: u8 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CombatRules {
@@ -52,16 +57,42 @@ impl CombatRules {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scenario { MountainPass, SupplyCorridor, OpenField }
+pub enum Scenario { MountainPass, SupplyCorridor, OpenField, OutnumberedField }
 impl Scenario {
-    pub const ALL: [Self; 3] = [
-        Self::MountainPass, Self::SupplyCorridor, Self::OpenField,
+    pub const ALL: [Self; 4] = [
+        Self::MountainPass, Self::SupplyCorridor,
+        Self::OpenField, Self::OutnumberedField,
     ];
     pub fn label(self) -> &'static str {
         match self {
             Self::MountainPass => "mountain_pass",
             Self::SupplyCorridor => "supply_corridor",
             Self::OpenField => "open_field",
+            Self::OutnumberedField => "outnumbered_field",
+        }
+    }
+}
+
+/// Scenarios declare physical victory conditions independently of the
+/// strategy or ablation mask. A time limit without an objective is a draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VictoryReason {
+    Annihilation,
+    DepotCapture,
+    PassHeld,
+    Breakthrough,
+    SupplyInterdicted,
+    CenterSecured,
+}
+impl VictoryReason {
+    pub fn label(self)->&'static str {
+        match self {
+            Self::Annihilation=>"annihilation",
+            Self::DepotCapture=>"depot_capture",
+            Self::PassHeld=>"pass_held",
+            Self::Breakthrough=>"breakthrough",
+            Self::SupplyInterdicted=>"supply_interdicted",
+            Self::CenterSecured=>"center_secured",
         }
     }
 }
@@ -142,9 +173,15 @@ pub struct Battle {
     pub stats: [TeamStats; 2],
     pub objective_owner: Option<u8>,
     pub winner: Option<u8>,
+    pub victory_reason: Option<VictoryReason>,
     pub ended: bool,
     /// Three turns physically occupying an undefended enemy depot wins.
     depot_occupation: [u8; 2],
+    /// Physical objective progress. All counts are reset on contest/loss.
+    pub pass_hold_rounds: u16,
+    pub breakthrough_rounds: u8,
+    pub interdiction_rounds: [u8; 2],
+    pub center_hold_rounds: [u8; 2],
     /// Tracks exact conservation of provision tokens, even after combat deaths.
     /// Supplies may be destroyed with a destroyed army, but never materialize.
     pub destroyed_provisions: [u32; 2],
@@ -201,7 +238,7 @@ impl Battle {
         let main_small=match scenario {
             Scenario::MountainPass=>PASS.0,
             Scenario::SupplyCorridor=>if swap {8} else {6},
-            Scenario::OpenField=>if swap {9} else {5},
+            Scenario::OpenField | Scenario::OutnumberedField=>if swap {9} else {5},
         };
         let main_large=if swap {4} else {10};
         let offset=(hash(seed,19)%3) as i16-1;
@@ -226,8 +263,12 @@ impl Battle {
             reserve:[START_RESERVE;2],
             stats:[TeamStats::default();2],
             objective_owner:None,
-            winner:None,ended:false,
+            winner:None,victory_reason:None,ended:false,
             depot_occupation:[0,0],
+            pass_hold_rounds:0,
+            breakthrough_rounds:0,
+            interdiction_rounds:[0,0],
+            center_hold_rounds:[0,0],
             destroyed_provisions:[0,0],
         }
     }
@@ -244,6 +285,15 @@ impl Battle {
     pub fn initial_troops(&self,team:usize)->u32 {
         if self.scenario==Scenario::OpenField {500}
         else if team==0 {400} else {650}
+    }
+
+    fn breakthrough_target(&self)->(i16,i16) {
+        if self.swap {(10,4)} else {(4,4)}
+    }
+
+    fn corridor_target(&self)->(i16,i16) {
+        let depot=self.depots[1];
+        if depot.0>PASS.0 {(11,4)} else {(3,4)}
     }
 
     pub fn supplies_balanced(&self,team:usize)->bool {
