@@ -297,7 +297,7 @@ async fn main() {
                     7=>{zoom_at(&mut center, &mut zoom, 1.5, board.center(), board);}
                     8=>{zoom_at(&mut center, &mut zoom, 1.0/1.5, board.center(), board);}
                     _=>{}
-    
+                }
                 } else if board.contains(p) {
                     map_gesture=Some(MapGesture{start:p,last:p,dragged:false});
                 }
