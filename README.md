@@ -24,6 +24,24 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## V0.6 (experimental): time, seasonal scarcity, and learned carrying
+
+The existing V0.5 browser game remains unchanged by default. V0.6 is a **headless opt-in research experiment**, not yet a new playable mechanic.
+
+- **Time:** each agent remembers the location, stock and simulation tick of its last local food observation. A repeated observation of the *same tile* with less food provides a coarse "declining" context. Agents cannot read the true season clock.
+- **Scarcity:** the experiment alternates 120 ticks of ordinary regeneration with 120 ticks of no regeneration. This is an invented toy environment, not ecological realism.
+- **Carrying:** agents can physically transfer up to four units of tile food into eight-unit cargo capacity, then eat it when energy becomes low. Movement with cargo sometimes incurs an extra metabolic cost. Tile, cargo and energy totals are audited.
+- **Learning:** a tiny contextual scoring policy explores and updates carrying preferences after delayed evidence of eating cargo versus its burden. It is not a neural network, causal learner or proof of planning.
+- **Controls:** for each matched world seed, compare **no cargo**, **50%-random cargo decisions**, and **score-based learned decisions**. Construction, sharing and communication are disabled to isolate this first experiment.
+
+```bash
+cargo test --lib
+cargo test --bin adaptation_lab
+cargo run --release --bin adaptation_lab -- 720 4
+```
+
+The lab reports agent survival, energy, cargo collected/used, carrying costs, number of decisions, learning updates and learned scores. **We must not assume that the learned policy is better**—the output decides. This experiment is intended to be merged into the playable UI only after its basic behavior is checked.
+
 ## Scientific tests
 
 ```bash
@@ -56,6 +74,8 @@ The app uses CSS-pixel mouse/touch coordinates (`high_dpi=false`) to keep contro
 
 - `src/society.rs`: authoritative agent resource dynamics and timing; energy ledger.
 - `src/settlements.rs`: local camp construction, finite shared storage, read-only settlement observer and tests.
+- `src/adaptation.rs`: opt-in time-stamped memories, season rules, resource-carrying and learned decision scores.
+- `src/bin/adaptation_lab.rs`: matched-seed survival and resource accounting experiment.
 - `src/military.rs`: player's temporary army and orders (V0.4).
 - `src/bin/society.rs`: two-dimensional dot-and-line phone renderer with observational labels and touch controls.
 - `src/bin/settlement_lab.rs`: reproducible ON/OFF formation experiment.
