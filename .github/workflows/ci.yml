@@ -24,8 +24,11 @@ jobs:
         run: cargo run --release --bin military_lab -- 350 4
       - name: Check autonomous settlement formation and no-construction controls
         run: cargo run --release --bin settlement_lab -- 1000 4
-      - name: Compile all three browser games
+      - name: Test competitive Frontier engine
+        run: cargo test --lib frontier
+      - name: Compile all browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
+          cargo build --release --bin frontier --target wasm32-unknown-unknown

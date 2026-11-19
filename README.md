@@ -24,6 +24,37 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## NEW: Genesis Frontier — playable competitive strategy prototype
+
+**[Play Frontier](https://danielthrastarson.github.io/Tycoon-game/frontier.html)** (available once this branch is merged and GitHub Pages deploys).
+
+The strategy game runs as a **separate mode**, preserving the original agent-based emergence laboratory. First release supports **one human versus three autonomous computer kingdoms**, not live online multiplayer yet. All game rules and bot commands run in Rust; Macroquad is rendering and input only.
+
+### Controls
+- **Select army:** Tap your blue army circle (initial army selected automatically).
+- **MOVE / ATTACK:** Select a mode, then tap the desired map location. Armies traverse terrain, cannot cross sea, and capture neighboring land as they advance when supplied.
+- **HOLD / RETREAT:** Stop at current position, or move toward your capital.
+- **RECRUIT:** Spend 450 food and 180 population to spawn a real 165-troop army at your capital (maximum four active armies per faction).
+- **PLAY/PAUSE, NEW WORLD, ZOOM + / −:** Manage the match. Desktop keyboard: space pause, R recruit, 1 move, 2 attack, 3 hold, Tab speed.
+- **Win:** Capture the rival capitals or achieve 78% territorial dominance; lose if your capital falls.
+
+### Meaningful mechanisms
+- Terrain: farm, plains, forests, mountains and seas; procedurally varied geography with a river and crossings.
+- Economy: owned land produces food, armies/population consume it, population grows with surplus, winter reduces harvest.
+- Logistics: armies need a **connected friendly-owned route to their capital**, or they suffer attrition. Mountains slow movement, and freezing campaigns cost troops.
+- AI: bots are subject to the same movement, recruitment, combat, supply and resource constraints.
+- Scope: population is **aggregated** per kingdom; there is no reproduction, diplomatic AI, realistic historical simulation or networked multiplayer in this prototype.
+
+### Verification
+```bash
+cargo test --lib frontier
+cargo build --release --bin frontier --target wasm32-unknown-unknown
+# Tests run in CI after staging the WASM into web/frontier.wasm:
+node tests/frontier_smoke.mjs
+```
+
+The browser playtest uses real WebAssembly and touches buttons on Android-sized screens. The original Genesis homepage remains intact. Future server-authoritative multiplayer can validate the same `World::issue` and `World::recruit` commands without trusting clients.
+
 ## Scientific tests
 
 ```bash

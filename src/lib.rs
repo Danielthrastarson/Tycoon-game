@@ -9,3 +9,4 @@ pub mod military;
 
 pub use core::{Audit, Cell, Universe};
 pub use scale::{Level, Pyramid, Sample};
+pub mod frontier;

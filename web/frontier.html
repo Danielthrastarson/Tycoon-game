@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b121d">
+<title>Genesis Frontier — Strategy Prototype</title>
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b121d;touch-action:none}
+canvas{display:block;width:100%;height:100%;outline:none;touch-action:none}
+nav{position:fixed;top:9px;right:10px;z-index:3;font:12px system-ui,sans-serif}
+nav a{color:#b6e8ff;background:#22384e;border-radius:5px;padding:6px 9px;text-decoration:none}
+#error{display:none;position:fixed;z-index:5;left:14px;right:14px;top:86px;color:#fff;border:1px solid #db978d;background:#422a31;padding:16px;border-radius:8px;font:14px/1.5 system-ui,sans-serif}
+</style>
+</head>
+<body>
+<nav><a href="index.html">Emergence Lab</a></nav>
+<canvas id="glcanvas" tabindex="1"></canvas>
+<div id="error" role="alert">Unable to load Genesis Frontier. Refresh or try a browser with WebGL support.</div>
+<noscript>This game requires JavaScript and WebGL.</noscript>
+<script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+<script>
+function showError(reason){
+  const el=document.getElementById('error');
+  el.textContent='Genesis Frontier could not start: '+String(reason);
+  el.style.display='block';
+}
+window.addEventListener('unhandledrejection',ev=>showError(ev.reason?.message||'WebAssembly could not load'));
+window.addEventListener('error',ev=>{
+  if(/webgl|wasm|load|uncaught/i.test(ev.message||''))showError(ev.message);
+});
+try {
+  if(typeof load!=='function')throw Error('Graphics bundle missing');
+  load('frontier.wasm?v=0.1.0');
+} catch(err){showError(err.message||err);}
+setTimeout(()=>{
+  const c=document.getElementById('glcanvas');
+  if(!c||c.width<=300&&c.height<=150)showError('Canvas did not initialize');
+},10000);
+</script>
+</body>
+</html>

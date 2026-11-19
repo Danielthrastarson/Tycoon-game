@@ -10,14 +10,17 @@ import time
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 TARGET = ROOT / "target/wasm32-unknown-unknown/debug/society.wasm"
+FRONTIER_TARGET = ROOT / "target/wasm32-unknown-unknown/debug/frontier.wasm"
 
 def build():
     print("\nBuilding Genesis Emergent Societies...", flush=True)
-    result = subprocess.run(["cargo", "build", "--bin", "society",
+    result = subprocess.run(["cargo", "build", "--bin", "society", "--bin", "frontier",
         "--target", "wasm32-unknown-unknown"], cwd=ROOT)
     if result.returncode == 0 and TARGET.exists():
         (WEB / "game.wasm").write_bytes(TARGET.read_bytes())
-        print("Reload forwarded port 8000 to play.", flush=True)
+        if FRONTIER_TARGET.exists():
+            (WEB / "frontier.wasm").write_bytes(FRONTIER_TARGET.read_bytes())
+        print("Reload port 8000 (original) or /frontier.html (strategy).", flush=True)
     else:
         print("Build failed. Read Rust errors above.", flush=True)
 
