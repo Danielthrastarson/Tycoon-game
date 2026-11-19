@@ -260,8 +260,11 @@ impl World {
         Some(id)
     }
 
-    fn next_step(&self,from:(i16,i16),to:(i16,i16))->Option<(i16,i16)> {
-        if from==to {return None;}
+    /// Deterministic shortest traversable path; path excludes the start
+    /// and includes the reachable destination. This is a read-only projection
+    /// suitable for both authoritative movement and an animated route overlay.
+    pub fn route(&self,from:(i16,i16),to:(i16,i16))->Vec<(i16,i16)> {
+        if from==to || !Self::valid(from.0,from.1) {return Vec::new();}
         let to=self.nearest_land(to);
         let mut parents=vec![usize::MAX;N];
         let mut queue=VecDeque::new();
@@ -280,13 +283,20 @@ impl World {
                 queue.push_back((nx,ny));
             }
         }
-        if parents[end]==usize::MAX {return None;}
+        if parents[end]==usize::MAX {return Vec::new();}
         let mut cursor=end;
-        while parents[cursor]!=start {
+        let mut path=Vec::new();
+        while cursor!=start {
+            path.push(((cursor%WIDTH) as i16,(cursor/WIDTH) as i16));
             cursor=parents[cursor];
-            if cursor==start || cursor==usize::MAX {return None;}
+            if cursor==usize::MAX {return Vec::new();}
         }
-        Some(((cursor%WIDTH) as i16,(cursor/WIDTH) as i16))
+        path.reverse();
+        path
+    }
+
+    fn next_step(&self,from:(i16,i16),to:(i16,i16))->Option<(i16,i16)> {
+        self.route(from,to).first().copied()
     }
 
     fn advance_armies(&mut self) {
@@ -565,6 +575,54 @@ mod tests {
         for _ in 0..16 {w.step();}
         assert_ne!(w.armies[1].target,before);
         assert_eq!(w.armies[1].order,Order::Attack);
+    }
+
+    #[test]
+    fn forward_armies_start_supplied_and_can_reach_the_crossing() {
+        for seed in [1, 9, 41, 77001] {
+            let world=World::new(seed);
+            let a=&world.armies[0];
+            assert_eq!(a.owner,0);
+            assert!(world.supply_connected(0,(a.x,a.y)));
+            let route=world.route((a.x,a.y),NORTH_CROSSING);
+            assert!(!route.is_empty(), "seed {seed} has no route");
+            for (x,y) in route {
+                assert!(world.terrain_at(x,y).traversable());
+            }
+        }
+    }
+
+    #[test]
+    fn invading_frontier_claims_land_and_reports_what_changed() {
+        let mut world=World::new(77001);
+        let a=world.armies[0].id;
+        assert!(world.issue(0,a,Order::Attack,NORTH_CROSSING));
+        let before=world.counts()[0];
+        let mut reported=0_u32;
+        for _ in 0..100 {
+            world.step();
+            reported+=world.last_report.captured[0];
+        }
+        assert!(world.counts()[0]>before,
+            "frontier army must be able to expand into reachable land");
+        assert!(reported>0);
+    }
+
+    #[test]
+    fn battle_reports_only_actual_lost_troops() {
+        let mut world=World::new(10);
+        let a=world.armies[0].clone();
+        let enemy=world.armies.iter().position(|a|a.owner==1).unwrap();
+        world.armies[enemy].x=a.x;
+        world.armies[enemy].y=a.y;
+        world.armies[enemy].troops=180;
+        let before_a=world.armies[0].troops;
+        let before_b=world.armies[enemy].troops;
+        world.last_report=TurnReport::default();
+        world.fight();
+        assert_eq!(world.last_report.clashes,1);
+        assert_eq!(before_a-world.armies[0].troops,world.last_report.casualties[0]);
+        assert_eq!(before_b-world.armies[enemy].troops,world.last_report.casualties[1]);
     }
 
     #[test]
