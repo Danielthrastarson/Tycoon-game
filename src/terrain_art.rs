@@ -177,7 +177,7 @@ pub fn build_atlas(battle:&Battle,tile_pixels:u16)->TerrainAtlas {
                     let shift=glade*4.5+micro*4.0;
                     rgb[0]+=shift+2.0;
                     rgb[1]+=shift;
-                    rgb[2]+=shift*.56;
+                    rgb[2]+=shift*0.56;
                 }
             }
 
