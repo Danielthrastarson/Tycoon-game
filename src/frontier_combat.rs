@@ -455,12 +455,54 @@ impl Battle {
         true
     }
 
-    fn move_one(pos:(i16,i16),target:(i16,i16))->(i16,i16) {
-        if pos.1!=target.1 {
-            (pos.0,pos.1+if target.1>pos.1 {1}else{-1})
-        } else if pos.0!=target.0 {
-            (pos.0+if target.0>pos.0 {1}else{-1},pos.1)
-        } else {pos}
+    /// Breadth-first movement through the actual grid. Opposing armies and
+    /// sea are impassable; if an enemy holds the target, route to the closest
+    /// accessible adjacent square. Geographic combat modifiers may be
+    /// ablated without making sea traversable.
+    fn route_step(
+        map:&[Terrain;CELLS], occupancy:&[Unit;4],
+        from:(i16,i16), target:(i16,i16), side:u8
+    )->Option<(i16,i16)> {
+        if from==target {return None;}
+        let mut parents=[usize::MAX;CELLS];
+        let mut length=[u16::MAX;CELLS];
+        let mut queue=VecDeque::new();
+        let start=index(from);
+        parents[start]=start;length[start]=0;
+        queue.push_back(from);
+        let mut best=start;
+        let mut closest=distance(from,target);
+        let offsets=[(1,0),(0,-1),(-1,0),(0,1)];
+        while let Some((x,y))=queue.pop_front() {
+            let current=index((x,y));
+            let d=distance((x,y),target);
+            if d<closest || (d==closest && length[current]<length[best]) {
+                closest=d;best=current;
+            }
+            if (x,y)==target {break;}
+            for (dx,dy) in offsets {
+                let pos=(x+dx,y+dy);
+                if pos.0<0 || pos.0>=FIELD_WIDTH ||
+                    pos.1<0 || pos.1>=FIELD_HEIGHT {continue;}
+                let idx=index(pos);
+                if parents[idx]!=usize::MAX || map[idx]==Terrain::Sea {
+                    continue;
+                }
+                if occupancy.iter().any(|enemy|enemy.side!=side &&
+                    enemy.troops>0 && enemy.pos==pos) {continue;}
+                parents[idx]=current;
+                length[idx]=length[current]+1;
+                queue.push_back(pos);
+            }
+        }
+        if best==start {return None;}
+        let mut cursor=best;
+        while parents[cursor]!=start {
+            cursor=parents[cursor];
+            if cursor==usize::MAX {return None;}
+        }
+        Some(((cursor%FIELD_WIDTH as usize) as i16,
+            (cursor/FIELD_WIDTH as usize) as i16))
     }
 
     fn assign(&mut self,idx:usize,order:Order,destination:(i16,i16)) {
@@ -517,10 +559,10 @@ impl Battle {
                 self.assign(1,Order::Attack,big_scout.pos);
             }
             Policy::PassDefense => {
-                if small_main.pos==PASS {
-                    self.assign(0,Order::Hold,PASS);
+                if small_main.pos==self.objective {
+                    self.assign(0,Order::Hold,self.objective);
                 } else {
-                    self.assign(0,Order::Attack,PASS);
+                    self.assign(0,Order::Attack,self.objective);
                 }
                 // Defense-in-depth: protect the *actual* breakthrough tile.
                 // A rear guard two tiles away cannot contest occupation.
@@ -537,10 +579,10 @@ impl Battle {
                 }
             }
             Policy::SupplyRaid => {
-                if small_main.pos==PASS {
-                    self.assign(0,Order::Hold,PASS);
+                if small_main.pos==self.objective {
+                    self.assign(0,Order::Hold,self.objective);
                 } else {
-                    self.assign(0,Order::Attack,PASS);
+                    self.assign(0,Order::Attack,self.objective);
                 }
                 let (order,target)=self.scout_raid_destination(1);
                 self.assign(1,order,target);
@@ -553,7 +595,7 @@ impl Battle {
             if small_main.state.morale<42 || small_main.state.fatigue>88 {
                 self.assign(0,Order::Retreat,small_depot);
             } else if self.scenario==Scenario::SupplyCorridor &&
-                small_main.pos!=PASS && !self.physical_interdiction(0) &&
+                small_main.pos!=self.objective && !self.physical_interdiction(0) &&
                 (big_main.state.provisions==0 || big_main.troops<small_main.troops/2) {
                 // Never abandon a held road interdiction merely because
                 // the isolated enemy is running low on provisions.
@@ -597,7 +639,7 @@ impl Battle {
                 self.assign(2,Order::Attack,small_main.pos);
             }
         } else if counter {
-            self.assign(2,Order::Attack,PASS);
+            self.assign(2,Order::Attack,self.objective);
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
@@ -612,7 +654,7 @@ impl Battle {
             self.assign(3,Order::Attack,u.pos);
         } else if counter &&
             matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
-            self.assign(3,Order::Attack,PASS);
+            self.assign(3,Order::Attack,self.objective);
         } else if distance(big_scout.pos,big_depot)>1 {
             self.assign(3,Order::Move,big_depot);
         } else {
@@ -622,10 +664,14 @@ impl Battle {
 
     fn movement(&mut self)->[bool;4] {
         let mut moved=[false;4];
-        // Use pre-movement occupancy, not loop order. Two opposing armies
-        // cannot phase through one another in the same tactical round.
+        // All units read the same pre-movement occupancy. We also track
+        // destinations claimed earlier this round to avoid endpoint stacking
+        // and move-update advantages (there are only four units).
         let before=self.units;
-        for (i,u) in self.units.iter_mut().enumerate() {
+        let map=self.map;
+        let mut claimed:Vec<(i16,i16)>=Vec::new();
+        for i in 0..4 {
+            let u=&mut self.units[i];
             if u.troops==0 {continue;}
             if u.order==Order::Hold {
                 u.state.entrenchment=u.state.entrenchment.saturating_add(1).min(3);
@@ -633,16 +679,16 @@ impl Battle {
                 u.state.entrenchment=0;
                 let steps=if u.order==Order::Retreat {2} else {1};
                 for _ in 0..steps {
-                    let next=Self::move_one(u.pos,u.destination);
-                    if next==u.pos {break;}
-                    if before.iter().any(|enemy|enemy.side!=u.side
-                        && enemy.troops>0 && enemy.pos==next) {
-                        break; // enemy line blocks entry; combat is adjacent
-                    }
-                    u.pos=clamp_pos(next);
+                    let next=Self::route_step(&map,&before,u.pos,u.destination,u.side);
+                    let Some(next)=next else {break;};
+                    if claimed.contains(&next) {break;}
+                    if before.iter().any(|enemy|enemy.side!=u.side &&
+                        enemy.troops>0 && enemy.pos==next) {break;}
+                    u.pos=next;
                     moved[i]=true;
                 }
             }
+            claimed.push(u.pos);
             if self.rules.fatigue {
                 u.state.fatigue=if moved[i] {
                     u.state.fatigue.saturating_add(4).min(100)
@@ -853,7 +899,7 @@ impl Battle {
         }
         let at_pass:[bool;2]=std::array::from_fn(|side|
             self.units.iter().any(|u|u.side as usize==side &&
-                u.troops>0 && distance(u.pos,PASS)<=1));
+                u.troops>0 && distance(u.pos,self.objective)<=1));
         self.objective_owner=match at_pass {
             [true,false]=>Some(0),[false,true]=>Some(1),_=>None,
         };
@@ -870,9 +916,9 @@ impl Battle {
                 // Team 0 explicitly defends the pass for a fixed siege period.
                 // Team 1 tries to cross and occupy a real tile beyond it.
                 let defending=self.units.iter().any(|u|u.side==0 &&
-                    u.troops>=40 && u.pos==PASS && u.order==Order::Hold);
+                    u.troops>=40 && u.pos==self.objective && u.order==Order::Hold);
                 let occupying_pass=self.units.iter().any(|u|u.side==1 &&
-                    u.troops>0 && u.pos==PASS);
+                    u.troops>0 && u.pos==self.objective);
                 if defending && !occupying_pass {
                     self.pass_hold_rounds=self.pass_hold_rounds.saturating_add(1);
                 } else {self.pass_hold_rounds=0;}
