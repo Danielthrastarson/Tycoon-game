@@ -1,5 +1,5 @@
 //! Genesis V0.3 graphical viewer — OpenFront-like legibility:
-//! dots = agents, green pixels = resource stock, lines = actual sharing ties,
+//! dots = agents, green pixels = resource stock, lines = recorded social ties,
 //! colors and labels = observer-detected clusters (not predefined factions).
 use genesis::society::{Observer, World, SIDE};
 use macroquad::prelude::*;
@@ -239,7 +239,7 @@ async fn main() {
         draw_text(&format!("Tick {}   Alive {}/{}   Groups {}",
             world.tick, world.alive_count(), world.agents.len(), observer.stable_groups()),
             13.0, 77.0, 17.0, Color::from_rgba(191, 211, 228, 255));
-        draw_text(&format!("Shared {} energy   Seed {}", world.cumulative_transferred, seed),
+        draw_text(&format!("Contacts {}   Shared {}   Seed {}", world.cumulative_communications, world.cumulative_transferred, seed),
             13.0, 95.0, 13.0, Color::from_rgba(143, 165, 180, 255));
 
         draw_rectangle(board.x, board.y, board.w, board.h,
@@ -328,7 +328,7 @@ async fn main() {
             draw_text(&format!("Dot {}: energy {}  |  {}", id + 1, a.energy, group),
                 12.0, hint_y, 13.0, LIGHTGRAY);
         } else {
-            draw_text("Dots: agents   •   Lines: sharing   •   Green: resources",
+            draw_text("Dots: agents   •   Lines: interactions   •   Green: food",
                 12.0, hint_y, 13.0, LIGHTGRAY);
         }
 
@@ -356,8 +356,8 @@ async fn main() {
             for (row, text) in [
                 "100 independent agents; no starting factions.",
                 "Agents move, eat, share surpluses, remember food.",
-                "Colors are read-only observations of repeated sharing.",
-                "Turn SHARE OFF to compare identical-world rules.",
+                "Colors track persistent interaction networks.",
+                "SHARE OFF still permits communication.",
             ].iter().enumerate() {
                 draw_text(text, overlay.x + 8.0, overlay.y + 23.0 + row as f32 * 24.0,
                     (overlay.w / 33.0).clamp(10.0, 14.0), WHITE);
