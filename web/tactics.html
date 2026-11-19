@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b1824">
-<title>Genesis Tactical Siege V0.4.4 — Defend the Pass</title>
+<title>Genesis Tactical Siege V0.4.5a — Living Battlefield</title>
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b121d;touch-action:none}
 canvas{display:block;width:100%;height:100%;outline:none;touch-action:none}
@@ -31,7 +31,7 @@ window.addEventListener('error',ev=>{
 });
 try {
   if(typeof load!=='function')throw Error('Graphics loader unavailable');
-  load('tactics.wasm?v=0.4.4');
+  load('tactics.wasm?v=0.4.5a');
 }catch(err){fail(err.message||err)}
 setTimeout(()=>{
   const c=document.getElementById('glcanvas');
