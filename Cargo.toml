@@ -1,8 +1,8 @@
 [package]
 name = "genesis"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Genesis: simulation experiments and a composable invention lab"
+description = "Genesis: emergent societies, programmable-matter and voxel experiments"
 
 [dependencies]
 macroquad = "0.4"
