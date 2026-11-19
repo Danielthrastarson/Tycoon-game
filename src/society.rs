@@ -254,7 +254,7 @@ impl World {
         let a = self.agents[id];
         let mut x = a.x;
         let mut y = a.y;
-        if Self::distance((x, y), destination) > 2 {
+        if Self::distance((x, y), destination) > if guarding { 3 } else { 2 } {
             let dx = Self::direction(x, destination.0);
             let dy = Self::direction(y, destination.1);
             // An orderly, bounded movement step, independent of camera location.
@@ -262,6 +262,26 @@ impl World {
                 x = Self::wrap(x + dx);
             } else if dy != 0 {
                 y = Self::wrap(y + dy);
+            }
+        } else if guarding {
+            // Soldiers defending a *productive region* may forage on foot
+            // rather than starve on one depleted coordinate. They only inspect
+            // four adjacent cells and never move more than one tile.
+            let mut best = self.tiles[Self::at(x, y)].stock;
+            if best < 3 {
+                let options = [(1_i16,0_i16), (0,1), (-1,0), (0,-1)];
+                for n in 0..4 {
+                    let (dx,dy) = options[(n + id) % 4];
+                    let nx = Self::wrap(x + dx);
+                    let ny = Self::wrap(y + dy);
+                    if Self::distance((nx,ny), destination) > 3 { continue; }
+                    let stock = self.tiles[Self::at(nx,ny)].stock;
+                    if stock > best {
+                        best = stock;
+                        x = nx;
+                        y = ny;
+                    }
+                }
             }
         }
         let moved = x != a.x || y != a.y;
