@@ -32,3 +32,4 @@ jobs:
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
           cargo build --release --bin frontier --target wasm32-unknown-unknown
+          cargo build --release --bin tactics --target wasm32-unknown-unknown

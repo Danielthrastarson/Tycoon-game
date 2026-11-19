@@ -8,6 +8,7 @@ use genesis::frontier_combat::{
     VictoryReason, FIELD_WIDTH, FIELD_HEIGHT, MAX_ROUNDS, MOUNTAIN_DEFEND_ROUNDS,
 };
 use macroquad::prelude::*;
+use genesis::terrain_art::{build_atlas, DEFAULT_PIXELS_PER_CELL};
 
 fn config()->Conf {
     Conf {
@@ -19,9 +20,6 @@ fn config()->Conf {
 }
 
 fn rgba(r:u8,g:u8,b:u8)->Color {Color::from_rgba(r,g,b,255)}
-fn tint(c:Color,k:f32)->Color {
-    Color::new((c.r*k).min(1.0),(c.g*k).min(1.0),(c.b*k).min(1.0),c.a)
-}
 const BG:Color=Color{r:0.045,g:0.073,b:0.108,a:1.0};
 const CYAN:Color=Color{r:0.38,g:0.84,b:1.0,a:1.0};
 const ORANGE:Color=Color{r:1.0,g:0.62,b:0.37,a:1.0};
@@ -97,80 +95,38 @@ fn cell_from(p:Vec2,area:Rect,view:Rect)->(i16,i16) {
 fn sq(p:(i16,i16),area:Rect,view:Rect)->Vec2 {
     screen(vec2(p.0 as f32,p.1 as f32),area,view)
 }
-fn terrain_color(t:Terrain)->Color {
-    match t {
-        Terrain::Sea=>rgba(27,83,118),
-        Terrain::Plain=>rgba(62,104,86),
-        Terrain::Farm=>rgba(91,135,76),
-        Terrain::Forest=>rgba(34,91,76),
-        Terrain::Mountain=>rgba(108,125,127),
-    }
+/// A single linear-filtered GPU texture replaces tile-by-tile drawing.
+//// All generation happens once at new-world time, never per frame.
+fn make_terrain_texture(world:&Battle)->Texture2D {
+    let bitmap=build_atlas(world,DEFAULT_PIXELS_PER_CELL);
+    let texture=Texture2D::from_rgba8(bitmap.width,bitmap.height,&bitmap.rgba);
+    texture.set_filter(FilterMode::Linear);
+    texture
+}
+/// Map changes reuse one GPU allocation instead of leaking textures.
+fn refresh_terrain_texture(texture:&Texture2D,world:&Battle) {
+    let bitmap=build_atlas(world,DEFAULT_PIXELS_PER_CELL);
+    texture.update_from_bytes(bitmap.width as u32,bitmap.height as u32,
+        &bitmap.rgba);
 }
 fn interpolated(a:(i16,i16),b:(i16,i16),alpha:f32)->Vec2 {
     vec2(a.0 as f32,a.1 as f32).lerp(
         vec2(b.0 as f32,b.1 as f32),alpha)
 }
-fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
-    chosen:usize,hover:Option<(i16,i16)>,mode:Order,
-    effects:&[Floater]) {
+fn map_render(b:&Battle,atlas:&Texture2D,area:Rect,view:Rect,
+    positions:[Vec2;4],chosen:usize,hover:Option<(i16,i16)>,
+    mode:Order,effects:&[Floater]) {
     draw_rectangle(area.x,area.y,area.w,area.h,rgba(13,29,39));
+    // Crop in *world-space cells* mapped into atlas texels.
+    // Unlike per-tile drawing, this draws only the visible terrain,
+    // never bleeds into the adjacent buttons, and stays smooth on pan/zoom.
+    let tile=DEFAULT_PIXELS_PER_CELL as f32;
+    draw_texture_ex(atlas,area.x,area.y,WHITE,DrawTextureParams{
+        dest_size:Some(vec2(area.w,area.h)),
+        source:Some(Rect::new(view.x*tile,view.y*tile,view.w*tile,view.h*tile)),
+        ..Default::default()
+    });
     let cell=area.w/view.w;
-    let start_x=view.x.floor() as i16;
-    let end_x=(view.x+view.w).ceil().min(FIELD_WIDTH as f32) as i16;
-    let start_y=view.y.floor() as i16;
-    let end_y=(view.y+view.h).ceil().min(FIELD_HEIGHT as f32) as i16;
-    for y in start_y.max(0)..end_y {
-        for x in start_x.max(0)..end_x {
-            let t=b.terrain_at((x,y));
-            let center=sq((x,y),area,view);
-            let left=center.x-cell*0.5;
-            let top=center.y-cell*0.5;
-            let rough=((x as i32*19+y as i32*11+b.seed as i32)%9) as f32;
-            // Clip partially visible terrain cells to the map viewport.
-            let rx=left.max(area.x);
-            let ry=top.max(area.y);
-            let rw=(left+cell+0.7).min(area.x+area.w)-rx;
-            let rh=(top+cell+0.7).min(area.y+area.h)-ry;
-            if rw>0. && rh>0. {
-                draw_rectangle(rx,ry,rw,rh,
-                    tint(terrain_color(t),0.93+rough*0.012));
-            }
-            let fully_visible=left>=area.x && top>=area.y &&
-                left+cell<=area.x+area.w && top+cell<=area.y+area.h;
-            if cell>=16. && fully_visible {
-                match t {
-                    Terrain::Mountain=>{
-                        let d=cell*0.30;
-                        draw_triangle(vec2(center.x,center.y-d),
-                            vec2(center.x-d*0.91,center.y+d*0.60),
-                            vec2(center.x+d*0.91,center.y+d*0.60),
-                            rgba(163,179,176));
-                        draw_line(center.x,center.y-d,
-                            center.x+d*0.20,center.y+d*0.23,1.2,rgba(225,229,211));
-                    }
-                    Terrain::Forest=>{
-                        for off in [-0.24_f32,0.17] {
-                            draw_circle(center.x+cell*off,center.y+cell*0.02,
-                                (cell*0.135).max(1.9),rgba(19,68,57));
-                            draw_circle(center.x+cell*off,center.y-cell*0.07,
-                                (cell*0.10).max(1.7),rgba(39,124,86));
-                        }
-                    }
-                    Terrain::Sea=>{
-                        draw_line(left+cell*0.22,center.y-cell*0.08,
-                            left+cell*0.64,center.y-cell*0.08,1.,rgba(62,138,161));
-                    }
-                    _=>{}
-                }
-            }
-            if fully_visible {
-                draw_rectangle_lines(left,top,cell+0.5,cell+0.5,0.38,
-                    Color::new(0.80,0.93,0.83,0.085));
-            }
-        }
-    }
-    // This soft boundary only clips overlay objects; terrain tiles are
-    // already restricted to the board's visible source range.
     let objective=sq(b.objective,area,view);
     if area.contains(objective) {
         let pulse=(get_time() as f32*2.4).sin()*0.5+0.5;
@@ -297,19 +253,18 @@ fn minimap_rect(area:Rect)->Rect {
     let height=width*FIELD_HEIGHT as f32/FIELD_WIDTH as f32;
     Rect::new(area.x+area.w-width-9.0,area.y+9.0,width,height)
 }
-fn draw_minimap(b:&Battle,area:Rect,view:Rect) {
+fn draw_minimap(b:&Battle,atlas:&Texture2D,area:Rect,view:Rect) {
     let m=minimap_rect(area);
     draw_rectangle(m.x-5.0,m.y-5.0,m.w+10.0,m.h+24.0,
         Color::new(0.055,0.09,0.13,0.95));
 
+    // Identical atlas: the minimap can never disagree with the main view.
+    draw_texture_ex(atlas,m.x,m.y,WHITE,DrawTextureParams{
+        dest_size:Some(vec2(m.w,m.h)),
+        ..Default::default()
+    });
     let cw=m.w/FIELD_WIDTH as f32;
     let ch=m.h/FIELD_HEIGHT as f32;
-    for y in 0..FIELD_HEIGHT {
-        for x in 0..FIELD_WIDTH {
-            draw_rectangle(m.x+x as f32*cw,m.y+y as f32*ch,
-                cw+0.15,ch+0.15,terrain_color(b.terrain_at((x,y))));
-        }
-    }
     for u in &b.units {
         if u.troops==0 {continue;}
         let cx=m.x+(u.pos.0 as f32+0.5)*cw;
@@ -381,6 +336,7 @@ async fn main() {
     let layouts=[Layout::Ridge,Layout::RiverFord,Layout::SplitValley];
     let mut layout_idx=0usize;
     let mut battle=reset(seed,layouts[layout_idx]);
+    let landscape=make_terrain_texture(&battle);
     let mut previous_positions:[(i16,i16);4]=std::array::from_fn(|i|
         battle.units[i].pos);
     let mut chosen=0usize;
@@ -465,6 +421,7 @@ async fn main() {
             seed+=1;
             layout_idx=(layout_idx+1)%layouts.len();
             battle=restart(seed,layout_idx);
+            refresh_terrain_texture(&landscape,&battle);
             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
             chosen=0;mode=Order::Hold;
             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
@@ -520,6 +477,7 @@ async fn main() {
                             seed+=1;
                             layout_idx=(layout_idx+1)%layouts.len();
                             battle=restart(seed,layout_idx);
+                            refresh_terrain_texture(&landscape,&battle);
                             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
                             chosen=0;mode=Order::Hold;
                             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
@@ -637,8 +595,8 @@ async fn main() {
         draw_rectangle(13.,83.,sw-26.,5.,rgba(42,62,70));
         draw_rectangle(13.,83.,(sw-26.)*progress,5.,GREEN);
         let view=world_view(camera,zoom,area);
-        map_render(&battle,area,view,visual_positions,chosen,None,mode,&floaters);
-        draw_minimap(&battle,area,view);
+        map_render(&battle,&landscape,area,view,visual_positions,chosen,None,mode,&floaters);
+        draw_minimap(&battle,&landscape,area,view);
 
         let control_x=if wide {area.x+area.w+12.}else{10.};
         let info_y=if wide {112.}else{area.y+area.h+10.};

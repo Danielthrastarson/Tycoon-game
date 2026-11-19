@@ -11,3 +11,5 @@ pub use core::{Audit, Cell, Universe};
 pub use scale::{Level, Pyramid, Sample};
 pub mod frontier;
 pub mod frontier_combat;
+
+pub mod terrain_art;
