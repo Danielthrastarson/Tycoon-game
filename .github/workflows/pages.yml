@@ -33,6 +33,7 @@ jobs:
           cargo build --release --bin society --target wasm32-unknown-unknown
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
+          cargo build --release --bin frontier --target wasm32-unknown-unknown
   deploy:
     needs: verify
     runs-on: ubuntu-latest
@@ -52,11 +53,12 @@ jobs:
       - name: Stage website
         run: |
           mkdir -p dist/scripts
-          cp web/index.html web/invention.html web/universe.html web/manifest.webmanifest dist/
+          cp web/index.html web/invention.html web/universe.html web/frontier.html web/manifest.webmanifest dist/
           cp web/scripts/*.js dist/scripts/
           cp target/wasm32-unknown-unknown/release/society.wasm dist/game.wasm
           cp target/wasm32-unknown-unknown/release/invention.wasm dist/invention.wasm
           cp target/wasm32-unknown-unknown/release/genesis.wasm dist/universe.wasm
+          cp target/wasm32-unknown-unknown/release/frontier.wasm dist/frontier.wasm
           touch dist/.nojekyll
       - uses: actions/configure-pages@v5
         with:
