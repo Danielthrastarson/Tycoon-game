@@ -4,6 +4,7 @@ pub mod core;
 pub mod scale;
 pub mod invention;
 pub mod society;
+pub mod adaptation;
 pub mod settlements;
 pub mod military;
 
