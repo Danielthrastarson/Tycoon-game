@@ -24,6 +24,10 @@ jobs:
         run: cargo run --release --bin military_lab -- 350 4
       - name: Check autonomous settlement formation and no-construction controls
         run: cargo run --release --bin settlement_lab -- 1000 4
+      - name: Test learned-carrying invariants
+        run: cargo test --bin adaptation_lab
+      - name: Run matched-seed seasonal learning ablation
+        run: cargo run --release --bin adaptation_lab -- 720 4
       - name: Compile all three browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
