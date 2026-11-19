@@ -361,9 +361,10 @@ impl World {
                 incomes[tile.owner as usize]+=tile.terrain.yield_food();
             }
         }
+        let winter=self.winter();
         for (i,k) in self.kingdoms.iter_mut().enumerate() {
             if !k.alive {continue;}
-            let harvest=if self.winter() {incomes[i]/5} else {incomes[i]};
+            let harvest=if winter {incomes[i]/5} else {incomes[i]};
             let army_cost: i32=self.armies.iter().filter(|a|a.owner==i as u8)
                 .map(|a|(a.troops/8) as i32).sum();
             let upkeep=(k.population/17) as i32 + army_cost;
@@ -437,10 +438,9 @@ impl World {
         let counts=self.counts();
         let owned:usize=counts.iter().sum();
         if owned>0 {
-            if let Some((i,n))=counts.iter().enumerate().find(|(_,n)|**n*100>=owned*78) {
+            if let Some((i,_))=counts.iter().enumerate().find(|(_,n)|**n*100>=owned*78) {
                 // Dominance requires retaining a real capital.
                 if self.kingdoms[i].alive {self.winner=Some(i as u8);}
-                let _=n;
             }
         }
     }
