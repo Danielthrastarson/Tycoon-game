@@ -40,7 +40,7 @@ window.addEventListener('unhandledrejection',event=>{
 });
 try {
   if(typeof load!=='function') throw Error('The graphics engine script did not load.');
-  load('game.wasm?v=0.4.1');
+  load('game.wasm?v=0.4.2');
 } catch(err) {
   genesisError(err.message || String(err));
 }
