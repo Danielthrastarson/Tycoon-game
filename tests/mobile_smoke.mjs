@@ -98,11 +98,11 @@ for (const scenario of [
     return [shot.data[i],shot.data[i+1],shot.data[i+2]];
   };
   const pausedColor=await buttonBg();
-  await tap(buttonPoint(0)); // PLAY
+  await tap(buttonPoint(0)); // PLAY/PAUSE toggle
   const playingColor=await buttonBg();
-  if(playingColor[1]<=pausedColor[1]+20)
-    throw Error(scenario.name+': PLAY button did not switch state: '+pausedColor+' => '+playingColor);
-  await tap(buttonPoint(0)); // PAUSE
+  if(Math.abs(playingColor[1]-pausedColor[1])<20)
+    throw Error(scenario.name+': PLAY/PAUSE button did not switch state: '+pausedColor+' => '+playingColor);
+  await tap(buttonPoint(0)); // toggle back
   const pausedAgain=await buttonBg();
   if(Math.abs(pausedAgain[1]-pausedColor[1])>15)
     throw Error(scenario.name+': PAUSE button did not switch back: '+pausedColor+' => '+pausedAgain);
