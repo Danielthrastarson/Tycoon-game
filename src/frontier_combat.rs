@@ -603,53 +603,75 @@ impl Battle {
             }
         }
 
-        // Both adversaries obey identical mechanics. Counter observes the
-        // public objective and reacts faster; it gets no hidden modifiers.
+        // Four independent, deterministic enemy command policies. None
+        // sees future state, rule toggles or inaccessible resource bonuses.
         let counter=self.opponent==OpponentPolicy::Counter;
-        let flank_after=if counter {2} else {8};
+        let pincer=self.opponent==OpponentPolicy::Pincer;
+        let fortress=self.opponent==OpponentPolicy::Fortress;
+        let flank_after=if pincer {1} else if counter {2}
+            else if fortress {6} else {8};
         let beyond_pass=if self.swap {big_main.pos.0>=8}
             else {big_main.pos.0<=6};
         if self.scenario==Scenario::MountainPass && beyond_pass {
-            // Once beyond the defenders, stop chasing them from behind.
-            // Reaching the objective is more important than endless contact.
             self.assign(2,Order::Attack,self.breakthrough_target());
         } else if self.scenario==Scenario::MountainPass &&
             self.pass_hold_rounds>=flank_after &&
             ((self.swap && big_main.pos.0<=7) ||
              (!self.swap && big_main.pos.0>=7)) {
-            // Counter tries the southern flank, Standard the northern one.
-            let flank=match (self.swap,counter) {
-                (false,false)=>(5,1),(true,false)=>(9,1),
-                (false,true)=>(5,7),(true,true)=>(9,7),
-            };
+            let lane=if counter || pincer {7} else {1};
+            let flank=if self.swap {(9,lane)} else {(5,lane)};
             self.assign(2,Order::Attack,flank);
         } else if distance(big_main.pos,small_main.pos)<=1 && small_main.troops>0 {
             self.assign(2,Order::Attack,small_main.pos);
         } else if self.scenario==Scenario::MountainPass {
             self.assign(2,Order::Attack,self.breakthrough_target());
         } else if self.scenario==Scenario::SupplyCorridor {
-            // Physical response to road interdiction, not an omniscient
-            // change to the defender's damage, food or morale.
             let raider=self.units[1];
-            let response_range=if counter {4} else {1};
+            let response_range=if fortress {7} else if counter {4} else {1};
             if raider.troops>0 &&
                 distance(raider.pos,self.corridor_target())<=response_range {
                 self.assign(2,Order::Attack,raider.pos);
+            } else if pincer {
+                self.assign(2,Order::Attack,self.objective);
             } else {
                 self.assign(2,Order::Attack,small_main.pos);
             }
-        } else if counter {
-            self.assign(2,Order::Attack,self.objective);
+        } else if counter || pincer || fortress {
+            // Contest the actual seeded center rather than a fixed tile.
+            if fortress && big_main.pos==self.objective {
+                self.assign(2,Order::Hold,self.objective);
+            } else {
+                self.assign(2,Order::Attack,self.objective);
+            }
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
-        let guard_radius=if counter {7} else {3};
+        let guard_radius=if fortress {8} else if counter {7} else {3};
         let intruder=[small_main,small_scout].into_iter()
             .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=guard_radius)
             .min_by_key(|u|distance(u.pos,big_depot));
-        if self.scenario==Scenario::MountainPass && counter &&
+        if pincer && self.scenario==Scenario::MountainPass &&
+            self.pass_hold_rounds>0 {
+            // Second army tries a different approach: either a real
+            // breakthrough from the north or a force-on-force clash.
+            let lane=1;
+            let target=if self.swap {(10,lane)} else {(4,lane)};
+            self.assign(3,Order::Attack,target);
+        } else if pincer && self.scenario==Scenario::SupplyCorridor {
+            self.assign(3,Order::Attack,small_depot);
+        } else if pincer &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            self.assign(3,Order::Attack,self.objective);
+        } else if self.scenario==Scenario::MountainPass && counter &&
             self.pass_hold_rounds>=2 && small_scout.troops>0 {
             self.assign(3,Order::Attack,small_scout.pos);
+        } else if fortress &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            if big_scout.pos==self.objective {
+                self.assign(3,Order::Hold,self.objective);
+            } else {
+                self.assign(3,Order::Attack,self.objective);
+            }
         } else if let Some(u)=intruder {
             self.assign(3,Order::Attack,u.pos);
         } else if counter &&
