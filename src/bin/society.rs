@@ -189,6 +189,7 @@ async fn main() {
                         seed = seed.wrapping_add(1);
                         world = World::new(seed);
                         observer = Observer::default();
+                        last_food_tick = u64::MAX;
                         selected = None;
                         running = true;
                         accumulator = 0.0;
