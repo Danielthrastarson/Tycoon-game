@@ -50,6 +50,7 @@ jobs:
           cargo build --release --bin society --target wasm32-unknown-unknown
           cargo build --release --bin invention --target wasm32-unknown-unknown
           cargo build --release --bin genesis --target wasm32-unknown-unknown
+          cargo build --release --bin frontier --target wasm32-unknown-unknown
       - name: Stage website
         run: |
           mkdir -p dist/scripts
