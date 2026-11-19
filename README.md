@@ -45,6 +45,14 @@ The strategy game runs as a **separate mode**, preserving the original agent-bas
 - AI: bots are subject to the same movement, recruitment, combat, supply and resource constraints.
 - Scope: population is **aggregated** per kingdom; there is no reproduction, diplomatic AI, realistic historical simulation or networked multiplayer in this prototype.
 
+### Smoother Frontier controls (V0.2)
+
+- **Drag the map with one finger or left mouse button** to move the camera after zooming in. A genuine tap selects an army or issues a destination order only on release; a drag never issues an order.
+- **Pinch and wheel zoom remain centered on the point beneath the fingers/cursor.** The zoom buttons work without forcibly jumping to the selected army.
+- **Army marker positions animate between authoritative Rust tile steps** for more fluid movement; the map uses smooth texture filtering instead of nearest-neighbor pixel blocks.
+- Map GPU texture is uploaded only at relevant territorial phases/season changes, and displayed supply status is cached for each simulation tick instead of running a BFS every render frame.
+- The original simulation rules, armies, territory and multiplayer-ready command boundaries are unchanged.
+
 ### Verification
 ```bash
 cargo test --lib frontier
