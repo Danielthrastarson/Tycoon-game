@@ -34,7 +34,11 @@ def read_data(path:Path,opponent:str)->dict[tuple,dict]:
         if key in records:
             raise ValueError(f"duplicate holdout cell {key}")
         records[key]=row
-    expected=N_SEEDS*4*4*2*len(CORE_MASKS)
+    expected=N_SEEDS*4*4*2*len(CORE_MASKS)*4
+    if {key[5] for key in records}!=CORE_MASKS:
+        raise ValueError(f"{opponent}: wrong holdout mask set")
+    if {key[1] for key in records}!={"classic","ridge","river_ford","split_valley"}:
+        raise ValueError(f"{opponent}: wrong holdout map layouts")
     if len(records)!=expected:
         raise ValueError(f"{opponent}: {len(records)} rows, expected {expected}")
     return records
