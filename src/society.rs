@@ -254,7 +254,7 @@ impl World {
         let a = self.agents[id];
         let mut x = a.x;
         let mut y = a.y;
-        if Self::distance((x, y), destination) > if guarding { 3 } else { 2 } {
+        if Self::distance((x, y), destination) > (if guarding { 3 } else { 2 }) {
             let dx = Self::direction(x, destination.0);
             let dy = Self::direction(y, destination.1);
             // An orderly, bounded movement step, independent of camera location.
@@ -270,10 +270,11 @@ impl World {
             let mut best = self.tiles[Self::at(x, y)].stock;
             if best < 3 {
                 let options = [(1_i16,0_i16), (0,1), (-1,0), (0,-1)];
+                let (anchor_x, anchor_y) = (x, y);
                 for n in 0..4 {
                     let (dx,dy) = options[(n + id) % 4];
-                    let nx = Self::wrap(x + dx);
-                    let ny = Self::wrap(y + dy);
+                    let nx = Self::wrap(anchor_x + dx);
+                    let ny = Self::wrap(anchor_y + dy);
                     if Self::distance((nx,ny), destination) > 3 { continue; }
                     let stock = self.tiles[Self::at(nx,ny)].stock;
                     if stock > best {
