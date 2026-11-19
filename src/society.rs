@@ -60,6 +60,8 @@ pub struct StepReport {
     pub cargo_consumed: u64,
     pub carrying_cost: u64,
     pub learning_updates: u32,
+    pub thermoregulation_cost: u64,
+    pub cold_deaths: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -329,7 +331,7 @@ impl World {
         // A distant army with no food may starve.
         let cell = Self::at(x, y);
         let headroom = MAX_ENERGY.saturating_sub(self.agents[id].energy);
-        let taken = (self.tiles[cell].stock as u16).min(4).min(headroom);
+        let taken = (self.foragable_stock(cell) as u16).min(4).min(headroom);
         self.tiles[cell].stock -= taken as u8;
         self.agents[id].energy += taken;
         report.harvested += taken as u64;
@@ -343,8 +345,8 @@ impl World {
             for dx in -7_i16..=7 {
                 let nx = Self::wrap(x + dx);
                 let ny = Self::wrap(y + dy);
-                let stock = self.tiles[Self::at(nx, ny)].stock as i32;
-                if stock < 3 { continue; }
+                let stock = self.foragable_stock(Self::at(nx, ny)) as i32;
+                if stock < (if self.winter() { 1 } else { 3 }) { continue; }
                 // Prefer nearby resources; observe only a bounded neighbourhood.
                 let score = stock * 2 - (dx.abs() + dy.abs()) as i32 * 3;
                 if score > best {
@@ -360,7 +362,7 @@ impl World {
         let agent = self.agents[index];
         if !agent.alive { return; }
         let current = Self::at(agent.x, agent.y);
-        let local_food = self.tiles[current].stock;
+        let local_food = self.foragable_stock(current);
         let seen = self.see_food(agent.x, agent.y);
         if let Some(food) = seen {
             self.agents[index].known_food = Some(food);
@@ -399,7 +401,7 @@ impl World {
 
         let place = Self::at(x, y);
         let headroom = MAX_ENERGY - self.agents[index].energy;
-        let mut harvested = (self.tiles[place].stock as u16).min(6).min(headroom);
+        let mut harvested = (self.foragable_stock(place) as u16).min(6).min(headroom);
         if harvested > 0 {
             match self.guard_result(x, y) {
                 GuardResult::Uncontested => {}
@@ -516,6 +518,10 @@ impl World {
                 report.deaths += 1;
                 continue;
             }
+            // The body must maintain warmth before acting. The agent only
+            // senses today's ambient air; it receives no calendar or season ID.
+            self.thermal_step(i, &mut report);
+            if !self.agents[i].alive { continue; }
             if self.soldier(i) {
                 self.move_soldier(i, &mut report);
             } else {
