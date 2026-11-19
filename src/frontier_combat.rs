@@ -310,7 +310,7 @@ impl Battle {
 
     fn corridor_target(&self)->(i16,i16) {
         let depot=self.depots[1];
-        if depot.0>PASS.0 {(11,4)} else {(3,4)}
+        if depot.0>PASS.0 {(10,4)} else {(4,4)}
     }
 
     pub fn supplies_balanced(&self,team:usize)->bool {
@@ -444,7 +444,13 @@ impl Battle {
         // public objective and reacts faster; it gets no hidden modifiers.
         let counter=self.opponent==OpponentPolicy::Counter;
         let flank_after=if counter {2} else {8};
-        if self.scenario==Scenario::MountainPass &&
+        let beyond_pass=if self.swap {big_main.pos.0>=8}
+            else {big_main.pos.0<=6};
+        if self.scenario==Scenario::MountainPass && beyond_pass {
+            // Once beyond the defenders, stop chasing them from behind.
+            // Reaching the objective is more important than endless contact.
+            self.assign(2,Order::Attack,self.breakthrough_target());
+        } else if self.scenario==Scenario::MountainPass &&
             self.pass_hold_rounds>=flank_after &&
             ((self.swap && big_main.pos.0<=7) ||
              (!self.swap && big_main.pos.0>=7)) {
@@ -698,7 +704,11 @@ impl Battle {
                 u.pos.0>depot.0 && u.pos.0<enemy.pos.0
             } else {
                 u.pos.0<depot.0 && u.pos.0>enemy.pos.0
-            }))
+            }) &&
+            // A present enemy screen actually contests the cut. The
+            // raider cannot merely stand under fire to collect a free win.
+            !self.units.iter().any(|guard|guard.side!=u.side &&
+                guard.troops>0 && distance(guard.pos,u.pos)<=1))
     }
 
     fn resolve_objectives(&mut self) {
@@ -1063,6 +1073,7 @@ mod tests {
             battle.units[1].order=Order::Attack;
             battle.resolve_objectives();
             assert_eq!(battle.interdiction_rounds[0],0);
+            battle.units[2].pos=PASS; // enemy main has advanced eastward
             battle.units[1].pos=battle.corridor_target();
             assert!(!battle.connected(2));
             for _ in 0..(INTERDICTION_ROUNDS-1) {
@@ -1074,6 +1085,27 @@ mod tests {
             assert_eq!(battle.victory_reason,
                 Some(VictoryReason::SupplyInterdicted));
         }
+    }
+
+    #[test]
+    fn enemy_screen_contests_road_interdiction_instead_of_awarding_free_win() {
+        let mut battle=Battle::new(42,Scenario::SupplyCorridor,
+            Policy::SupplyRaid,false,CombatRules::FULL);
+        battle.units[2].pos=PASS; // enemy main advancing from depot
+        battle.units[1].pos=battle.corridor_target();
+        battle.units[3].pos=(11,4); // physical counter-screen
+        for _ in 0..INTERDICTION_ROUNDS+1 {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.interdiction_rounds[0],0);
+        assert!(battle.winner.is_none());
+        battle.units[3].pos=(13,4); // screen withdraws
+        for _ in 0..INTERDICTION_ROUNDS {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.winner,Some(0));
+        assert_eq!(battle.victory_reason,
+            Some(VictoryReason::SupplyInterdicted));
     }
 
     #[test]
