@@ -9,6 +9,7 @@
 //! this is a tractable agent-based experiment, not life from particle physics.
 
 use crate::military::{GuardResult, Order, Squad};
+use crate::adaptation::Adaptation;
 use crate::settlements::Camp;
 
 pub const SIDE: usize = 128;
@@ -55,6 +56,10 @@ pub struct StepReport {
     pub constructions: u32,
     pub stored: u64,
     pub withdrawn: u64,
+    pub cargo_collected: u64,
+    pub cargo_consumed: u64,
+    pub carrying_cost: u64,
+    pub learning_updates: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +71,8 @@ pub struct World {
     pub footprints: Vec<u16>,
     /// Persistent structures are created by local agent actions, never spawned.
     pub camps: Vec<Camp>,
+    /// Optional seasonal/memory/carrying experiment, off by default.
+    pub adaptation: Adaptation,
     pub agents: Vec<Agent>,
     /// Symmetric tie strength gained by actual resource sharing.
     /// Initial scores are ALL zero: no pre-assigned groups.
@@ -90,6 +97,7 @@ impl World {
             tiles: vec![Tile::default(); SIDE * SIDE],
             footprints: vec![0; SIDE * SIDE],
             camps: Vec::new(),
+            adaptation: Adaptation::new(INITIAL_AGENTS),
             agents: Vec::with_capacity(INITIAL_AGENTS),
             ties: vec![0; INITIAL_AGENTS * INITIAL_AGENTS],
             rules: Rules::default(),
@@ -189,6 +197,7 @@ impl World {
         self.tiles.iter().map(|t| t.stock as u64).sum::<u64>()
             + self.agents.iter().map(|a| a.energy as u64).sum::<u64>()
             + self.camps.iter().map(|c| c.supplies as u64).sum::<u64>()
+            + self.adaptation.agents.iter().map(|a| a.cargo as u64).sum::<u64>()
     }
 
     /// Recruit 5–10 of the *existing* living agents closest to the tap.
@@ -470,6 +479,8 @@ impl World {
         let mut report = StepReport::default();
         self.tick += 1;
 
+        // Seasonal food scarcity is opt-in; existing game rules remain stable.
+        if !self.winter() {
         for y in 0..SIDE {
             for x in 0..SIDE {
                 if (self.tick as usize + x * 17 + y * 31) % 8 != 0 { continue; }
@@ -480,6 +491,7 @@ impl World {
                 }
             }
         }
+        }
 
         let mut order: Vec<usize> = (0..self.agents.len()).collect();
         for n in (1..order.len()).rev() {
@@ -489,6 +501,8 @@ impl World {
 
         for &i in &order {
             if !self.agents[i].alive { continue; }
+            // Use stored food if survival is at immediate risk.
+            self.adaptation_feed(i, &mut report);
             let a = self.agents[i];
             // Shared shelter reduces some metabolic expenditure; no energy
             // appears from nowhere, and soldiers are not exempt.
@@ -506,7 +520,10 @@ impl World {
                 self.move_soldier(i, &mut report);
             } else {
                 self.forage_and_move(i, &mut report);
+                self.adaptation_after_forage(i, &mut report);
             }
+            let moved = a.x != self.agents[i].x || a.y != self.agents[i].y;
+            self.adaptation_burden(i, moved, &mut report);
         }
 
         for &i in &order { self.communicate(i, &mut report); }
