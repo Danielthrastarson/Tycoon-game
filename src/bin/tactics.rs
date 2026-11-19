@@ -309,8 +309,10 @@ fn board_layout(sw:f32,sh:f32)->(Rect,[Rect;2],[Rect;4],[Rect;5],bool) {
     let area=if wide {
         Rect::new(12.,111.,(origin_x-24.).max(170.),(sh-129.).max(140.))
     }else{
+        // Reserve 42 px above the action rail for objective and squad stats.
+        // Otherwise those labels overlap the selection buttons on phones.
         Rect::new(10.,108.,(sw-20.).max(160.),
-            (bottom_start-120.).max(165.))
+            (bottom_start-160.).max(155.))
     };
     let gap=7.;
     let squad_width=(control_width-gap)/2.;
@@ -567,7 +569,7 @@ async fn main() {
         map_render(&battle,area,view,visual_positions,chosen,None,mode,&floaters);
 
         let control_x=if wide {area.x+area.w+12.}else{10.};
-        let info_y=if wide {112.}else{area.y+area.h+12.};
+        let info_y=if wide {112.}else{area.y+area.h+10.};
         if wide {
             text("DEFEND THE PASS",control_x,info_y,17.,GOLD);
             text("Main: HOLD until 24 rounds.",control_x,info_y+24.,13.,WHITE);
