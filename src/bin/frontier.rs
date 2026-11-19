@@ -200,23 +200,59 @@ async fn main() {
             rail_x+12.+(i%3) as f32*(button_w+grid_side),
             controls_y+(i/3) as f32*57.,button_w,button_h)).collect();
 
+        // Explicit gesture state: touching the map does nothing until the
+        // finger lifts. Movement past a small threshold becomes camera pan.
+        // This keeps a drag from ordering the selected army to move.
         let touch_list=touches();
-        if touch_list.len()>=2 {
-            let d=touch_list[0].position.distance(touch_list[1].position);
-            if let Some(previous)=pinch_prev {
-                if previous>5. {
-                    zoom=(zoom*d/previous).clamp(1.,4.);
+        let active:Vec<_>=touch_list.iter()
+            .filter(|t|!matches!(t.phase,TouchPhase::Ended|TouchPhase::Cancelled))
+            .collect();
+        let has_touch=!touch_list.is_empty();
+        let pointer_start=if has_touch {
+            touch_list.iter().find(|t|t.phase==TouchPhase::Started)
+                .map(|t|t.position)
+        } else if is_mouse_button_pressed(MouseButton::Left) {
+            let (x,y)=mouse_position(); Some(vec2(x,y))
+        } else {None};
+        let pointer_current=if has_touch {
+            active.first().map(|t|t.position)
+        } else if is_mouse_button_down(MouseButton::Left) {
+            let (x,y)=mouse_position(); Some(vec2(x,y))
+        } else {None};
+        let pointer_end=if has_touch {
+            touch_list.iter().find(|t|t.phase==TouchPhase::Ended)
+                .map(|t|t.position)
+        } else if is_mouse_button_released(MouseButton::Left) {
+            let (x,y)=mouse_position(); Some(vec2(x,y))
+        } else {None};
+
+        if active.len()>=2 {
+            suppress_single_touch=true;
+            map_gesture=None;
+            let midpoint=(active[0].position+active[1].position)*0.5;
+            let span=active[0].position.distance(active[1].position);
+            if let Some((old_span,old_mid))=pinch_prev {
+                pan_by_pixels(&mut center,zoom,board,midpoint-old_mid);
+                if old_span>6.0 {
+                    zoom_at(&mut center,&mut zoom,span/old_span,midpoint,board);
                 }
             }
-            pinch_prev=Some(d);
+            pinch_prev=Some((span,midpoint));
         } else {pinch_prev=None;}
-        let wheel=mouse_wheel().1;
-        if wheel!=0. {
-            zoom=(zoom*(1.+wheel*0.15).max(0.6)).clamp(1.,4.);
+        if suppress_single_touch && active.is_empty() {
+            suppress_single_touch=false;
         }
-        let tap=if touch_list.len()<2 {pressed()} else {None};
-        if let Some(p)=tap {
-            if let Some(index)=buttons.iter().position(|r|r.contains(p)) {
+        let (mx,my)=mouse_position();
+        let mouse_point=vec2(mx,my);
+        let wheel=mouse_wheel().1;
+        if wheel!=0.0 && board.contains(mouse_point) {
+            zoom_at(&mut center,&mut zoom,(1.0+wheel*0.15).max(0.6),
+                mouse_point,board);
+        }
+
+        if active.len()<2 && !suppress_single_touch {
+            if let Some(p)=pointer_start {
+                if let Some(index)=buttons.iter().position(|r|r.contains(p)) {
                 match index {
                     0=>{running=!running;notice=if running {"Simulation running."}
                         else {"Paused. Issue orders, then resume."}.into();}
@@ -261,25 +297,47 @@ async fn main() {
                     7=>{zoom_at(&mut center, &mut zoom, 1.5, board.center(), board);}
                     8=>{zoom_at(&mut center, &mut zoom, 1.0/1.5, board.center(), board);}
                     _=>{}
+    
+                } else if board.contains(p) {
+                    map_gesture=Some(MapGesture{start:p,last:p,dragged:false});
                 }
-            } else if board.contains(p) {
-                let cell=map_cell(p,board,view_rect(center,zoom));
-                // Tapping a friendly army selects it; subsequent map taps
-                // issue a move/attack order to that army.
-                let picked=world.armies.iter()
-                    .filter(|a|a.owner==0 && a.troops>0)
-                    .min_by_key(|a|(a.x-cell.0).abs()+(a.y-cell.1).abs())
-                    .filter(|a|(a.x-cell.0).abs()+(a.y-cell.1).abs()<=2)
-                    .map(|a|a.id);
-                if let Some(id)=picked {
-                    selected=id;
-                    notice=format!("Army #{id} selected. Tap its destination.");
-                } else if player_army(&world,selected).is_some() {
-                    let command=if mode==Order::Hold {Order::Move} else {mode};
-                    if world.issue(0,selected,command,cell) {
-                        notice=format!("{} order sent to {},{}.",command.label(),cell.0,cell.1);
-                        running=true;
-                    } else {notice="Command rejected.".into();}
+            }
+            if let (Some(gesture),Some(current))=(map_gesture.as_mut(),pointer_current) {
+                if (current-gesture.start).length()>=DRAG_THRESHOLD_PX {
+                    gesture.dragged=true;
+                }
+                if gesture.dragged {
+                    // Move in world coordinates: pan works while paused too.
+                    let delta=current-gesture.last;
+                    pan_by_pixels(&mut center,zoom,board,delta);
+                }
+                gesture.last=current;
+            }
+            if let Some(finish)=pointer_end {
+                if let Some(gesture)=map_gesture.take() {
+                    if !gesture.dragged &&
+                        (finish-gesture.start).length()<DRAG_THRESHOLD_PX &&
+                        board.contains(finish) {
+                        let cell=map_cell(finish,board,view_rect(center,zoom));
+                        // A tap near your army selects; tapping elsewhere
+                        // issues one command only when the finger lifts.
+                        let picked=world.armies.iter()
+                            .filter(|a|a.owner==0 && a.troops>0)
+                            .min_by_key(|a|(a.x-cell.0).abs()+(a.y-cell.1).abs())
+                            .filter(|a|(a.x-cell.0).abs()+(a.y-cell.1).abs()<=2)
+                            .map(|a|a.id);
+                        if let Some(id)=picked {
+                            selected=id;
+                            notice=format!("Army #{id} selected. Tap its destination.");
+                        } else if player_army(&world,selected).is_some() {
+                            let command=if mode==Order::Hold {Order::Move} else {mode};
+                            if world.issue(0,selected,command,cell) {
+                                notice=format!("{} order sent to {},{}.",
+                                    command.label(),cell.0,cell.1);
+                                running=true;
+                            } else {notice="Command rejected.".into();}
+                        }
+                    }
                 }
             }
         }
