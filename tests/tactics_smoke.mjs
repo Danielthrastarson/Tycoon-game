@@ -100,7 +100,10 @@ for(const d of cases){
       const i=(first.width*y+x)*4;
       colors.add([first.data[i],first.data[i+1],first.data[i+2]].join(','));
     }
-  if(colors.size<20)throw Error(d.name+': map missing readable geography');
+  // The new atlas must have significantly more natural tonal variation
+  // than a handful of flat colored tiles. This also catches missing textures.
+  if(colors.size<185)
+    throw Error(d.name+': painterly landscape missing detailed terrain ('+colors.size+' sampled colors)');
   const utilitySample={x:controlX+5,y:start+103+5};
   const beforePlay=await color(page,utilitySample);
   await tap(util(0)); // start
@@ -162,14 +165,30 @@ for(const d of cases){
   const minimapChanged=diff(beforeMini,afterMini,board);
   if(minimapChanged<65)
     throw Error(d.name+': tappable minimap did not recenter camera');
-  await tap(util(2)); // new map
+  await tap(util(2)); // new map / update the SAME GPU texture
   await page.waitForTimeout(350);
   await page.screenshot({path:path.join(out,d.name+'-new-map.png'),scale:'css'});
+  const changedMap=diff(first,await screenshot(page),board);
+  if(changedMap<125)
+    throw Error(d.name+': new map did not visibly change the landscape');
+  // Repeated restarts must not produce blank, crashed or stale WebGL scenes.
+  for(let i=0;i<3;i++){
+    await tap(util(2));
+    await page.waitForTimeout(140);
+  }
+  const afterRestarts=await screenshot(page);
+  const terrainSample=(x,y)=>{
+    const at=(Math.floor(y)*afterRestarts.width+Math.floor(x))*4;
+    return [...afterRestarts.data.subarray(at,at+3)];
+  };
+  if(terrainSample(board.x+20,board.y+board.h*.6).every(v=>v<25))
+    throw Error(d.name+': terrain turned blank after repeated atlas updates');
   const err=await page.locator('#error').evaluate(el=>
     getComputedStyle(el).display!=='none');
   if(err)throw Error(d.name+': startup error shown after gameplay');
   console.log(JSON.stringify({device:d.name,canvas:meta,colors:colors.size,
     panChangedPixels:change,minimapChangedPixels:minimapChanged,
+    changedMapPixels:changedMap,
     orders:'attack/hold/retreat',
     controls:'play/pause/zoom/new-map/touch',result:'PASS'}));
   await ctx.close();
