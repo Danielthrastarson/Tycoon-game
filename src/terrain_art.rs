@@ -66,6 +66,74 @@ fn palette(t:Terrain)->[f32;3] {
     }
 }
 
+// Smooth geographic influence masks are sampled at a tenth-cell scale,
+// rather than using hard rectangular forest/mountain stamps. Adjacent tiles
+// form continuous landforms; isolated features taper into their surroundings.
+const FIELD_DETAIL:usize=12;
+struct LandscapeFields {
+    width:usize,
+    forest:Vec<f32>,
+    relief:Vec<f32>,
+}
+impl LandscapeFields {
+    fn new(battle:&Battle)->Self {
+        let width=FIELD_WIDTH as usize*FIELD_DETAIL+1;
+        let height=FIELD_HEIGHT as usize*FIELD_DETAIL+1;
+        let mut forest=vec![0.0; width*height];
+        let mut relief=vec![0.0; width*height];
+        for iy in 0..height {
+            let y=iy as f32/FIELD_DETAIL as f32;
+            for ix in 0..width {
+                let x=ix as f32/FIELD_DETAIL as f32;
+                let ix0=x.floor() as i16;
+                let iy0=y.floor() as i16;
+                let mut trees=0.0;
+                let mut rocks=0.0;
+                for by in (iy0-2).max(0)..=(iy0+2).min(FIELD_HEIGHT-1) {
+                    for bx in (ix0-2).max(0)..=(ix0+2).min(FIELD_WIDTH-1) {
+                        let dx=x-(bx as f32+0.5);
+                        let dy=y-(by as f32+0.5);
+                        let d2=dx*dx+dy*dy;
+                        match battle.terrain_at((bx,by)) {
+                            Terrain::Forest=>{
+                                let influence=(1.0-d2/1.08_f32.powi(2)).max(0.0);
+                                trees+=influence*influence*0.93;
+                            }
+                            Terrain::Mountain=>{
+                                let influence=(1.0-d2/1.45_f32.powi(2)).max(0.0);
+                                rocks+=influence*influence*0.86;
+                            }
+                            _=>{}
+                        }
+                    }
+                }
+                forest[iy*width+ix]=trees.min(1.0);
+                relief[iy*width+ix]=rocks.min(1.0);
+            }
+        }
+        Self {width,forest,relief}
+    }
+
+    #[inline]
+    fn interpolated(&self,data:&[f32],x:f32,y:f32)->f32 {
+        let xf=x.max(0.0)*FIELD_DETAIL as f32;
+        let yf=y.max(0.0)*FIELD_DETAIL as f32;
+        let ix=(xf.floor() as usize).min(self.width-2);
+        let iy=(yf.floor() as usize).min(data.len()/self.width-2);
+        let ax=(xf-ix as f32).clamp(0.0,1.0);
+        let ay=(yf-iy as f32).clamp(0.0,1.0);
+        let top=mix(data[iy*self.width+ix],data[iy*self.width+ix+1],ax);
+        let bottom=mix(data[(iy+1)*self.width+ix],
+            data[(iy+1)*self.width+ix+1],ax);
+        mix(top,bottom,ay)
+    }
+    #[inline]
+    fn sample(&self,x:f32,y:f32)->(f32,f32) {
+        (self.interpolated(&self.forest,x,y),
+         self.interpolated(&self.relief,x,y))
+    }
+}
+
 #[inline]
 fn blend_into(pixels:&mut [u8],w:usize,x:usize,y:usize,
     rgb:[f32;3],opacity:f32) {
@@ -119,6 +187,7 @@ pub fn build_atlas(battle:&Battle,tile_pixels:u16)->TerrainAtlas {
     let seed=(battle.seed as u32)
         ^ ((battle.seed>>32) as u32).rotate_left(7)
         ^ (battle.layout as u32).wrapping_mul(0x9e3779b9);
+    let fields=LandscapeFields::new(battle);
 
     for py in 0..h {
         let y=(py as f32+0.5)/tile_pixels as f32;
@@ -134,50 +203,78 @@ pub fn build_atlas(battle:&Battle,tile_pixels:u16)->TerrainAtlas {
             let warped_x=x+bend;
             let warped_y=y+(mid-0.5)*0.12+(broad-0.5)*0.05;
             let t=material(battle,warped_x,warped_y);
-            let mut rgb=palette(t);
-
+            let (trees,relief)=fields.sample(warped_x,warped_y);
             let sunlight=0.88+broad*0.23+mid*0.08+(micro-0.5)*0.075;
+            let mut rgb=palette(Terrain::Plain);
             for c in &mut rgb {*c*=sunlight;}
 
-            match t {
-                Terrain::Sea=>{
-                    // Pale shallows beside land, darker water farther in.
-                    // The brighter line is clearly NOT a traversable bridge.
-                    let mut land_near=0.0_f32;
-                    for (dx,dy) in [(0.105,0.0),(-0.105,0.0),
-                                    (0.0,0.105),(0.0,-0.105)] {
-                        if material(battle,warped_x+dx,warped_y+dy)!=Terrain::Sea {
-                            land_near=1.0;
-                        }
+            if t==Terrain::Sea {
+                rgb=palette(Terrain::Sea);
+                for c in &mut rgb {*c*=sunlight;}
+                // Pale shallows beside solid land, darker water farther in.
+                let mut land_near=0.0_f32;
+                for (dx,dy) in [(0.105,0.0),(-0.105,0.0),
+                                (0.0,0.105),(0.0,-0.105)] {
+                    if material(battle,warped_x+dx,warped_y+dy)!=Terrain::Sea {
+                        land_near=1.0;
                     }
-                    let shimmer=(x*13.8+y*4.1+mid*3.5).sin();
-                    rgb[0]+=land_near*27.0+shimmer.max(0.0)*3.8;
-                    rgb[1]+=land_near*29.0+shimmer.max(0.0)*5.0;
-                    rgb[2]+=land_near*18.0+shimmer.max(0.0)*5.5;
                 }
-                Terrain::Mountain=>{
-                    // Fine directional ridges and contour shadows produce
-                    // relief without allocating a 3D geometry engine.
+                let shimmer=(x*13.8+y*4.1+mid*3.5).sin();
+                rgb[0]+=land_near*27.0+shimmer.max(0.0)*3.8;
+                rgb[1]+=land_near*29.0+shimmer.max(0.0)*5.0;
+                rgb[2]+=land_near*18.0+shimmer.max(0.0)*5.5;
+            } else {
+                let glade=(x*5.4-y*2.3+broad*2.8).sin();
+                let ground=glade*4.5+micro*4.0;
+                rgb[0]+=ground+2.0;
+                rgb[1]+=ground;
+                rgb[2]+=ground*0.56;
+
+                if t==Terrain::Farm {
+                    let farm=palette(Terrain::Farm);
+                    for c in 0..3 {rgb[c]=mix(rgb[c],farm[c]*sunlight,0.74);}
+                }
+
+                // Woodland extends beyond its original cell boundary.
+                // Organic canopy edges remove the old green rectangles.
+                let forest_strength=(trees*(0.91+(mid-0.5)*0.22))
+                    .clamp(0.0,1.0);
+                let forest_color=[
+                    48.0*sunlight+mid*9.0,
+                    105.0*sunlight+mid*14.0,
+                    77.0*sunlight+broad*9.0,
+                ];
+                for c in 0..3 {
+                    rgb[c]=mix(rgb[c],forest_color[c],forest_strength);
+                }
+
+                // Relief flows across whole ridges, including the approach
+                // slopes. Northwest-facing slopes are warm and bright,
+                // southeast-facing slopes are cool and shadowed.
+                if relief>0.02 {
+                    let (_,sunward)=fields.sample(warped_x-0.075,warped_y-0.075);
+                    let (_,shadowward)=fields.sample(warped_x+0.075,warped_y+0.075);
+                    let directional=(sunward-shadowward)*64.0;
                     let ridge=(x*7.2+y*4.7+broad*6.3).sin();
                     let crack=(x*15.5-y*6.2+mid*5.7).sin().abs();
-                    let value=ridge*11.0
-                        +if crack>0.955 {16.0}else{0.0}
-                        -(1.0-mid)*13.0;
-                    rgb[0]+=value;
-                    rgb[1]+=value+2.0;
-                    rgb[2]+=value+4.0;
-                }
-                Terrain::Forest=>{
-                    rgb[0]-=8.0;
-                    rgb[1]+=mid*14.0;
-                    rgb[2]+=broad*8.0;
-                }
-                Terrain::Plain | Terrain::Farm=>{
-                    let glade=(x*5.4-y*2.3+broad*2.8).sin();
-                    let shift=glade*4.5+micro*4.0;
-                    rgb[0]+=shift+2.0;
-                    rgb[1]+=shift;
-                    rgb[2]+=shift*0.56;
+                    let outline=if crack>0.964 {12.0}else{0.0};
+                    let lighting=directional+ridge*10.0-(1.0-mid)*9.0+outline;
+                    let rock=[
+                        133.0*sunlight+lighting,
+                        146.0*sunlight+lighting+2.0,
+                        142.0*sunlight+lighting+3.0,
+                    ];
+                    let stone_strength=(relief*(1.05+(mid-0.5)*0.18))
+                        .clamp(0.0,1.0);
+                    for c in 0..3 {
+                        rgb[c]=mix(rgb[c],rock[c],stone_strength);
+                    }
+                    // Thin natural topographic contours, visible mostly
+                    // on slopes rather than as a repeated tile icon.
+                    let band=(relief*7.2+broad*0.48).fract();
+                    if stone_strength>0.16 && band<0.055 {
+                        for c in &mut rgb {*c-=stone_strength*10.0;}
+                    }
                 }
             }
 
