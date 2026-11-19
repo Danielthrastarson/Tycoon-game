@@ -117,6 +117,37 @@ impl World {
         x>=0 && y>=0 && (x as usize)<WIDTH && (y as usize)<HEIGHT
     }
 
+    /// Find a forward position by flood-filling only *connected owned land*.
+    /// A nearby coordinate is not necessarily supplied: water may isolate it.
+    fn forward_position(&self,who:u8)->(i16,i16) {
+        let cap=self.kingdoms[who as usize].capital;
+        let toward=if cap.0 < WIDTH as i16/2 {1} else {-1};
+        let mut visited=vec![false;N];
+        let mut queue=VecDeque::new();
+        visited[Self::index(cap.0,cap.1)]=true;
+        queue.push_back(cap);
+        let mut best=cap;
+        let mut best_score=i16::MIN;
+        while let Some((x,y))=queue.pop_front() {
+            let forward=(x-cap.0)*toward;
+            let score=forward*4-(y-cap.1).abs();
+            if score>best_score && dist((x,y),cap)>=6 {
+                best=(x,y);
+                best_score=score;
+            }
+            for (dx,dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
+                let (nx,ny)=(x+dx,y+dy);
+                if !Self::valid(nx,ny) {continue;}
+                let at=Self::index(nx,ny);
+                if !visited[at] && self.tiles[at].owner==who {
+                    visited[at]=true;
+                    queue.push_back((nx,ny));
+                }
+            }
+        }
+        best
+    }
+
     pub fn new(seed:u64)->Self {
         let mut tiles=Vec::with_capacity(N);
         for y in 0..HEIGHT {
@@ -161,8 +192,7 @@ impl World {
             }
             // An immediately selectable frontier army makes the first
             // invasion seconds away, rather than a lengthy empty march.
-            let toward_center = if cap.0 < WIDTH as i16 / 2 {12} else {-12};
-            let forward = world.nearest_land((cap.0+toward_center,cap.1));
+            let forward = world.forward_position(i as u8);
             world.armies.push(Army{owner:i as u8,x:forward.0,y:forward.1,
                 target:forward,order:Order::Hold,troops:300,id:world.next_id});
             world.next_id+=1;
@@ -571,10 +601,11 @@ mod tests {
     #[test]
     fn bots_act_only_through_simulation_ticks() {
         let mut w=World::new(99);
-        let before=w.armies[1].target;
+        let bot=w.armies.iter().position(|a|a.owner==1).unwrap();
+        let before=w.armies[bot].target;
         for _ in 0..16 {w.step();}
-        assert_ne!(w.armies[1].target,before);
-        assert_eq!(w.armies[1].order,Order::Attack);
+        assert_ne!(w.armies[bot].target,before);
+        assert_eq!(w.armies[bot].order,Order::Attack);
     }
 
     #[test]
