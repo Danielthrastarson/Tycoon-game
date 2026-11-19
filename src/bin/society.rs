@@ -409,25 +409,53 @@ async fn main() {
             draw_rectangle_lines(pos.x-size*0.5-1.0, pos.y-size*0.5-1.0,
                 size+2.0, size+2.0, 1.0, BLACK);
         }
-        for settlement in settlement_observer.settlements.iter().filter(|s| s.visible()) {
+        // Level-of-detail: whole-world maps show only the most populous
+        // hamlets with collision-free labels; zooming reveals every site.
+        let mut settlements: Vec<_> = settlement_observer.settlements.iter()
+            .filter(|s| s.visible()).collect();
+        settlements.sort_by(|a,b|
+            b.residents.cmp(&a.residents).then(a.camp_id.cmp(&b.camp_id)));
+        let max_labels = if zoom < 1.8 { 6 } else { 18 };
+        let mut placed_labels: Vec<Rect> = Vec::new();
+        for settlement in settlements {
             let pos = point_to_screen(
                 settlement.x as f32 + 0.5, settlement.y as f32 + 0.5, board, visible);
             if !board.contains(pos) { continue; }
-            let radius = 7.0 * board.w / visible.w;
+            if placed_labels.len() >= max_labels { break; }
+            let name = if zoom < 1.8 {
+                settlement.name()
+            } else {
+                format!("{}  {}", settlement.name(), settlement.residents)
+            };
+            let width = measure_text(&name, None, 11, 1.0).width + 8.0;
+            let label = Rect::new(
+                (pos.x - width * 0.5).clamp(board.x+2.0,board.x+board.w-width-2.0),
+                (pos.y - 19.0).clamp(board.y+2.0,board.y+board.h-19.0),
+                width, 16.0);
+            if placed_labels.iter().any(|other| {
+                label.x < other.x + other.w + 4.0 &&
+                label.x + label.w + 4.0 > other.x &&
+                label.y < other.y + other.h + 5.0 &&
+                label.y + label.h + 5.0 > other.y
+            }) { continue; }
+            placed_labels.push(label);
             let col = Color::from_rgba(251, 199, 96, 255);
-            if radius < board.w * 0.75 {
-                for segment in (0..32).step_by(2) {
-                    let a = segment as f32 * std::f32::consts::TAU / 32.0;
-                    let b = (segment + 1) as f32 * std::f32::consts::TAU / 32.0;
-                    draw_line(pos.x + radius*a.cos(), pos.y + radius*a.sin(),
-                        pos.x + radius*b.cos(), pos.y + radius*b.sin(),
-                        1.3, Color::new(col.r,col.g,col.b,0.65));
+            // Region rings require zoom; they are not political borders.
+            if zoom >= 2.4 {
+                let radius = 7.0 * board.w / visible.w;
+                if radius < board.w * 0.75 {
+                    for segment in (0..32).step_by(2) {
+                        let angle = segment as f32 * std::f32::consts::TAU / 32.0;
+                        let end = (segment+1) as f32 * std::f32::consts::TAU / 32.0;
+                        draw_line(pos.x + radius*angle.cos(), pos.y + radius*angle.sin(),
+                            pos.x + radius*end.cos(), pos.y + radius*end.sin(),
+                            1.3, Color::new(col.r,col.g,col.b,0.65));
+                    }
                 }
             }
-            let name = settlement.name();
-            draw_text(&name, (pos.x - 23.0).clamp(board.x+2.0,board.x+board.w-75.0),
-                (pos.y-radius-5.0).clamp(board.y+13.0,board.y+board.h-8.0),
-                11.0, col);
+            draw_rectangle(label.x,label.y,label.w,label.h,
+                Color::from_rgba(14, 27, 42, 218));
+            draw_text(&name, label.x+4.0, label.y+11.0, 11.0, col);
         }
 
         // Military overlays are player-issued commands, not emergent kingdoms.
@@ -463,7 +491,7 @@ async fn main() {
         }
 
         let membership = observer.membership(world.agents.len());
-        if show_groups {
+        if show_groups && zoom >= 2.4 {
             for group in observer.groups.iter().filter(|g| g.visible()) {
                 let (center_world, radius_world) = ellipse_around_group(&world, &group.members);
                 let point = point_to_screen(center_world.x, center_world.y, board, visible);
@@ -489,7 +517,7 @@ async fn main() {
             }
         }
 
-        if show_links {
+        if show_links && zoom >= 2.0 {
             for i in 0..world.agents.len() {
                 let ai = world.agents[i];
                 if !ai.alive { continue; }
