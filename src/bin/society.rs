@@ -111,6 +111,18 @@ fn ellipse_around_group(world: &World, members: &[usize]) -> (Vec2, f32) {
     (center, (radius + 3.0).max(4.0))
 }
 
+/// A purely player-facing objective. It NEVER modifies the simulation,
+/// agent decisions, or group observer labels.
+fn hold_progress(world: &World, previous: u32) -> u32 {
+    let Some(squad) = &world.squad else { return 0; };
+    if squad.order != Order::Hold { return 0; }
+    let defenders = squad.members.iter().filter(|&&id| {
+        let a = &world.agents[id];
+        a.alive && World::distance((a.x, a.y), squad.target) <= 3
+    }).count();
+    if defenders >= 3 { previous.saturating_add(1).min(20) } else { 0 }
+}
+
 #[macroquad::main(config)]
 async fn main() {
     let mut seed = 73021_u64;
@@ -130,6 +142,7 @@ async fn main() {
     let mut pending: Option<Pending> = None;
     let mut notice = String::from("Tap the map to recruit eight nearby civilians.");
     let mut options = false;
+    let mut held_ticks = 0_u32;
     let mut selected: Option<usize> = None;
     let mut image = Image::gen_image_color(SIDE as u16, SIDE as u16, BLACK);
     let texture = Texture2D::from_image(&image);
@@ -168,6 +181,7 @@ async fn main() {
             let mut steps = 0;
             while accumulator >= interval && steps < 4 {
                 world.step();
+                held_ticks = hold_progress(&world, held_ticks);
                 accumulator -= interval;
                 steps += 1;
                 if world.tick % 24 == 0 { observer.observe(&world); }
@@ -213,6 +227,7 @@ async fn main() {
                             selected = None;
                             pending = None;
                             running = false;
+                            held_ticks = 0;
                             accumulator = 0.0;
                             center = vec2(64.0, 64.0);
                             zoom = 1.0;
@@ -234,6 +249,7 @@ async fn main() {
                         }
                         5 => {
                             if world.issue_order(Order::Retreat, (0, 0)) {
+                                held_ticks = 0;
                                 pending = None;
                                 running = true;
                                 notice = "RETREAT: squad returning to recruitment site.".into();
@@ -241,6 +257,7 @@ async fn main() {
                         }
                         6 => {
                             world.disband();
+                            held_ticks = 0;
                             pending = None;
                             notice = "Soldiers disbanded; they resume civilian life.".into();
                         }
@@ -256,6 +273,7 @@ async fn main() {
                         0 => { options = false; notice = "Tap the map to recruit or command.".into(); }
                         1 => {
                             world.step();
+                            held_ticks = hold_progress(&world, held_ticks);
                             if world.tick % 24 == 0 { observer.observe(&world); }
                             running = false;
                             notice = "Advanced one simulation tick.".into();
@@ -289,6 +307,7 @@ async fn main() {
                     match action {
                         Pending::Recruit => {
                             let count = world.recruit_nearest(target, 8);
+                            held_ticks = 0;
                             if count > 0 {
                                 running = true;
                                 notice = format!("{} recruited. Tap the map to MOVE, or choose HOLD.", count);
@@ -296,12 +315,14 @@ async fn main() {
                         }
                         Pending::Move => {
                             if world.issue_order(Order::Move, target) {
+                                held_ticks = 0;
                                 running = true;
                                 notice = format!("MOVE to ({}, {}). Watch cyan soldiers.", target.0, target.1);
                             }
                         }
                         Pending::Hold => {
                             if world.issue_order(Order::Hold, target) {
+                                held_ticks = 0;
                                 running = true;
                                 notice = format!("HOLD near ({}, {}). Outnumbered guards can lose.", target.0, target.1);
                             }
@@ -482,14 +503,54 @@ async fn main() {
             format!("Person {}: {} energy, {}",
                 id + 1, a.energy, if world.soldier(id) { "soldier" } else { "civilian" })
         } else if let Some(squad) = &world.squad {
-            format!("Squad: {} alive. Order: {}. Speed: {}x",
-                world.soldier_count(), squad.order.name(), speed)
+            format!("Soldiers: {}  Order: {}  Hold: {}/20",
+                world.soldier_count(), squad.order.name(), held_ticks)
         } else {
             "White dots: people. Green: food. Cyan: your army.".into()
         };
         draw_text(&sentence, hint_x + 5.0, hint_y + 26.0,
             (hint_width / (sentence.len() as f32 * 0.57)).clamp(11., 15.),
             Color::from_rgba(216, 227, 240, 255));
+
+        // Fill spare portrait space with a real objective and army health,
+        // but never overlap the map or the phone's touch controls.
+        if !wide {
+            let panel_top = hint_y + hint_bg_h - 9.0;
+            let available = controls_y - panel_top - 8.0;
+            if available >= 52.0 {
+                let panel_h = available.min(88.0);
+                draw_rectangle(8.0, panel_top, sw - 16.0, panel_h,
+                    Color::from_rgba(18, 32, 47, 255));
+                let header = if held_ticks >= 20 {
+                    "SITE SECURED - OBJECTIVE COMPLETE"
+                } else if world.squad.is_some() {
+                    "OBJECTIVE: HOLD A GREEN SITE FOR 20 TICKS"
+                } else {
+                    "YOUR FIRST MISSION: RECRUIT AND HOLD"
+                };
+                draw_text(header, 17.0, panel_top + 20.0,
+                    ((sw - 35.0) / (header.len() as f32 * 0.59)).clamp(10.0, 16.0),
+                    Color::from_rgba(157, 221, 176, 255));
+                let avg_energy = if let Some(squad) = &world.squad {
+                    let living: Vec<_> = squad.members.iter()
+                        .map(|&id| &world.agents[id])
+                        .filter(|a| a.alive).collect();
+                    if living.is_empty() { 0 }
+                    else { living.iter().map(|a| a.energy as u32).sum::<u32>()
+                        / living.len() as u32 }
+                } else { 0 };
+                draw_text(&format!("Hold {}/20   Soldiers {}   Avg energy {}",
+                    held_ticks, world.soldier_count(), avg_energy),
+                    17.0, panel_top + 39.0, 13.0, LIGHTGRAY);
+                if panel_h >= 58.0 {
+                    let bar_y = panel_top + 46.0;
+                    draw_rectangle(17.0, bar_y, sw - 34.0, 7.0,
+                        Color::from_rgba(40, 56, 70, 255));
+                    draw_rectangle(17.0, bar_y, (sw - 34.0) * held_ticks as f32 / 20.0,
+                        7.0, Color::from_rgba(105, 212, 145, 255));
+                }
+            }
+        }
 
         let labels = if options {
             [
