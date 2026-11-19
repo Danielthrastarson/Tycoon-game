@@ -1644,16 +1644,7 @@ mod tests {
                 }
                 defended+=(good.winner==Some(0)) as usize;
 
-                let mut poor=Battle::new(seed,Scenario::MountainPass,
-                    Policy::Adaptive,false,CombatRules::FULL)
-                    .with_layout(layout)
-                    .with_opponent(OpponentPolicy::Counter);
-                assert!(poor.issue_player_order(0,Order::Retreat,
-                    poor.depots[0]));
-                assert!(poor.issue_player_order(1,Order::Hold,
-                    poor.units[1].pos));
-                poor.play(); // AI baseline is separately tested above
-                // The poor-play comparison must also use manual mode.
+                // The poor-play comparison uses the same manual mode.
                 let mut manual=Battle::new(seed,Scenario::MountainPass,
                     Policy::Adaptive,false,CombatRules::FULL)
                     .with_layout(layout)
