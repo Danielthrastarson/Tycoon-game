@@ -1064,6 +1064,7 @@ impl Battle {
             if !self.supplies_balanced(side) {return false;}
         }
         self.units.iter().all(|u|u.pos==clamp_pos(u.pos)
+            && (u.troops==0 || self.map[index(u.pos)]!=Terrain::Sea)
             && u.state.morale<=100 && u.state.fatigue<=100
             && u.state.provisions<=START_PROVISIONS
             && u.state.entrenchment<=3)
@@ -1390,6 +1391,91 @@ mod tests {
             (500,500));
         assert_eq!((unequal.initial_troops(0),unequal.initial_troops(1)),
             (400,650));
+    }
+
+    #[test]
+    fn all_seeded_geographies_are_navigable_and_mask_invariant() {
+        let mut distinct=std::collections::HashSet::new();
+        for scenario in Scenario::ALL {
+            for layout in Layout::ALL {
+                for seed in [1000,1001,1013,1028] {
+                    for swap in [false,true] {
+                        let base=Battle::new(seed,scenario,Policy::Adaptive,swap,
+                            CombatRules::FULL).with_layout(layout);
+                        let no_rules=Battle::new(seed,scenario,Policy::DirectRush,
+                            swap,CombatRules::from_mask(0)).with_layout(layout);
+                        assert_eq!(base.map,no_rules.map,
+                            "map must not change when a combat rule is ablated");
+                        assert_eq!(base.objective,no_rules.objective);
+                        assert_eq!(base.units,no_rules.units);
+                        assert_ne!(base.terrain_at(base.objective),Terrain::Sea);
+                        for u in &base.units {
+                            assert_ne!(base.terrain_at(u.pos),Terrain::Sea);
+                        }
+                        for depot in base.depots {
+                            let mut empty=base.units;
+                            for u in &mut empty {u.troops=0;}
+                            let mut pos=depot;
+                            for _ in 0..CELLS {
+                                if pos==base.objective {break;}
+                                let next=Battle::route_step(&base.map,&empty,
+                                    pos,base.objective,0)
+                                    .expect("objective must be reachable");
+                                assert_ne!(base.terrain_at(next),Terrain::Sea);
+                                pos=next;
+                            }
+                            assert_eq!(pos,base.objective,
+                                "cannot trap the starting army across water");
+                        }
+                        if scenario==Scenario::MountainPass {
+                            distinct.insert((
+                                layout.label(),
+                                base.map.iter().map(|t|*t as u8).collect::<Vec<_>>(),
+                                base.objective,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(distinct.len()>40,
+            "four named layouts must create genuinely distinct geography");
+    }
+
+    #[test]
+    fn river_and_valley_water_stays_impassable_when_terrain_effects_off() {
+        for layout in [Layout::RiverFord,Layout::SplitValley] {
+            let mut battle=Battle::new(1001,Scenario::MountainPass,
+                Policy::DirectRush,false,CombatRules::from_mask(0))
+                .with_layout(layout);
+            for _ in 0..MAX_ROUNDS {
+                battle.step();
+                assert!(battle.audit());
+                for u in &battle.units {
+                    if u.troops>0 {
+                        assert_ne!(battle.map[index(u.pos)],Terrain::Sea);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn all_opponent_families_get_identical_initial_worlds() {
+        for layout in Layout::ALL {
+            for scenario in Scenario::ALL {
+                let baseline=Battle::new(1011,scenario,Policy::Adaptive,
+                    false,CombatRules::FULL).with_layout(layout);
+                for adversary in OpponentPolicy::ALL {
+                    let mut run=baseline.clone().with_opponent(adversary);
+                    assert_eq!(run.map,baseline.map);
+                    assert_eq!(run.units,baseline.units);
+                    assert_eq!(run.depots,baseline.depots);
+                    for _ in 0..MAX_ROUNDS {run.step();}
+                    assert!(run.audit());
+                }
+            }
+        }
     }
 
     #[test]
