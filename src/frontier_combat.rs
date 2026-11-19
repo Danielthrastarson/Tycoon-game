@@ -377,7 +377,13 @@ impl Battle {
         map[index(self.objective)]=if self.scenario==Scenario::MountainPass {
             Terrain::Mountain
         } else {Terrain::Plain};
-        for d in self.depots {map[index(d)]=Terrain::Plain;}
+        // Clear every possible faction-spawn square, regardless of which
+        // team occupies each side. The same physical terrain must survive
+        // the side-swap control, not depend on a unit's ownership.
+        for p in [(1,cy),(13,cy),(4,cy),(5,cy),(9,cy),(10,cy),
+                  (3,1),(11,1),(3,7),(11,7)] {
+            map[index(p)]=Terrain::Plain;
+        }
         self.units[0].pos=if self.scenario==Scenario::MountainPass {
             self.objective
         } else {(if self.swap {9}else{5},cy)};
@@ -1409,6 +1415,10 @@ mod tests {
                             swap,CombatRules::from_mask(0)).with_layout(layout);
                         assert_eq!(base.map,no_rules.map,
                             "map must not change when a combat rule is ablated");
+                        let mirrored=Battle::new(seed,scenario,Policy::Adaptive,
+                            !swap,CombatRules::FULL).with_layout(layout);
+                        assert_eq!(base.map,mirrored.map,
+                            "side assignment must not regenerate geography");
                         assert_eq!(base.objective,no_rules.objective);
                         assert_eq!(base.units,no_rules.units);
                         assert_ne!(base.terrain_at(base.objective),Terrain::Sea);
