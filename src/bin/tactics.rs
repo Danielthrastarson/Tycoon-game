@@ -40,9 +40,9 @@ fn center_text(label:&str,center:Vec2,size:f32,color:Color) {
 fn button(rect:Rect,label:&str,selected:bool)->() {
     draw_rectangle(rect.x,rect.y,rect.w,rect.h,
         if selected {rgba(33,111,135)} else {rgba(31,47,64)});
-    draw_rectangle_lines(rect.x+.5,rect.y+.5,rect.w-1.,rect.h-1.,1.4,
+    draw_rectangle_lines(rect.x+0.5,rect.y+0.5,rect.w-1.,rect.h-1.,1.4,
         if selected {CYAN}else{rgba(68,90,110)});
-    center_text(label,rect.center(),(rect.w/(label.len() as f32*.64+1.))
+    center_text(label,rect.center(),(rect.w/(label.len() as f32*0.64+1.))
         .clamp(11.,16.),if selected {WHITE}else{rgba(203,218,227)});
 }
 
@@ -58,14 +58,14 @@ fn world_view(center:Vec2,zoom:f32,area:Rect)->Rect {
         height=width*area.h/area.w;
     }
     Rect::new(
-        (center.x-width*.5).clamp(0.,(FIELD_WIDTH as f32-width).max(0.)),
-        (center.y-height*.5).clamp(0.,(FIELD_HEIGHT as f32-height).max(0.)),
+        (center.x-width*0.5).clamp(0.,(FIELD_WIDTH as f32-width).max(0.)),
+        (center.y-height*0.5).clamp(0.,(FIELD_HEIGHT as f32-height).max(0.)),
         width,height
     )
 }
 fn clamp_camera(center:&mut Vec2,zoom:f32,area:Rect) {
     let view=world_view(*center,zoom,area);
-    *center=vec2(view.x+view.w*.5,view.y+view.h*.5);
+    *center=vec2(view.x+view.w*0.5,view.y+view.h*0.5);
 }
 fn pan(center:&mut Vec2,zoom:f32,area:Rect,delta:Vec2) {
     let view=world_view(*center,zoom,area);
@@ -84,8 +84,8 @@ fn zoom_on(center:&mut Vec2,zoom:&mut f32,factor:f32,at:Vec2,area:Rect) {
     clamp_camera(center,*zoom,area);
 }
 fn screen(p:Vec2,area:Rect,view:Rect)->Vec2 {
-    vec2(area.x+(p.x+.5-view.x)*area.w/view.w,
-         area.y+(p.y+.5-view.y)*area.h/view.h)
+    vec2(area.x+(p.x+0.5-view.x)*area.w/view.w,
+         area.y+(p.y+0.5-view.y)*area.h/view.h)
 }
 fn cell_from(p:Vec2,area:Rect,view:Rect)->(i16,i16) {
     let x=(view.x+(p.x-area.x)*view.w/area.w).floor()
@@ -95,7 +95,7 @@ fn cell_from(p:Vec2,area:Rect,view:Rect)->(i16,i16) {
     (x,y)
 }
 fn sq(p:(i16,i16),area:Rect,view:Rect)->Vec2 {
-    screen(vec2(p.0 as f32,p.1 as f32),area,view)
+    screen(vec2(p0.0 as f32,p0.1 as f32),area,view)
 }
 fn terrain_color(t:Terrain)->Color {
     match t {
@@ -107,8 +107,8 @@ fn terrain_color(t:Terrain)->Color {
     }
 }
 fn interpolated(a:(i16,i16),b:(i16,i16),alpha:f32)->Vec2 {
-    vec2(a.0 as f32,a.1 as f32).lerp(
-        vec2(b.0 as f32,b.1 as f32),alpha)
+    vec2(a0.0 as f32,a0.1 as f32).lerp(
+        vec2(b0.0 as f32,b0.1 as f32),alpha)
 }
 fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     chosen:usize,hover:Option<(i16,i16)>,mode:Order,
@@ -123,60 +123,60 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         for x in start_x.max(0)..end_x {
             let t=b.terrain_at((x,y));
             let center=sq((x,y),area,view);
-            let left=center.x-cell*.5;
-            let top=center.y-cell*.5;
+            let left=center.x-cell*0.5;
+            let top=center.y-cell*0.5;
             let rough=((x as i32*19+y as i32*11+b.seed as i32)%9) as f32;
-            draw_rectangle(left,top,cell+.7,cell+.7,
-                tint(terrain_color(t),.93+rough*.012));
+            draw_rectangle(left,top,cell+0.7,cell+0.7,
+                tint(terrain_color(t),0.93+rough*0.012));
             if cell>=16. {
                 match t {
                     Terrain::Mountain=>{
-                        let d=cell*.30;
+                        let d=cell*0.30;
                         draw_triangle(vec2(center.x,center.y-d),
-                            vec2(center.x-d*.91,center.y+d*.60),
-                            vec2(center.x+d*.91,center.y+d*.60),
+                            vec2(center.x-d*0.91,center.y+d*0.60),
+                            vec2(center.x+d*0.91,center.y+d*0.60),
                             rgba(163,179,176));
                         draw_line(center.x,center.y-d,
-                            center.x+d*.20,center.y+d*.23,1.2,rgba(225,229,211));
+                            center.x+d*0.20,center.y+d*0.23,1.2,rgba(225,229,211));
                     }
                     Terrain::Forest=>{
-                        for off in [-.24_f32,.17] {
-                            draw_circle(center.x+cell*off,center.y+cell*.02,
-                                (cell*.135).max(1.9),rgba(19,68,57));
-                            draw_circle(center.x+cell*off,center.y-cell*.07,
-                                (cell*.10).max(1.7),rgba(39,124,86));
+                        for off in [-0.24_f32,0.17] {
+                            draw_circle(center.x+cell*off,center.y+cell*0.02,
+                                (cell*0.135).max(1.9),rgba(19,68,57));
+                            draw_circle(center.x+cell*off,center.y-cell*0.07,
+                                (cell*0.10).max(1.7),rgba(39,124,86));
                         }
                     }
                     Terrain::Sea=>{
-                        draw_line(left+cell*.22,center.y-cell*.08,
-                            left+cell*.64,center.y-cell*.08,1.,rgba(62,138,161));
+                        draw_line(left+cell*0.22,center.y-cell*0.08,
+                            left+cell*0.64,center.y-cell*0.08,1.,rgba(62,138,161));
                     }
                     _=>{}
                 }
             }
-            draw_rectangle_lines(left,top,cell+.5,cell+.5,.38,
-                Color::new(.80,.93,.83,.085));
+            draw_rectangle_lines(left,top,cell+0.5,cell+0.5,0.38,
+                Color::new(0.80,0.93,0.83,0.085));
         }
     }
     // This soft boundary only clips overlay objects; terrain tiles are
     // already restricted to the board's visible source range.
     let objective=sq(b.objective,area,view);
     if area.contains(objective) {
-        let pulse=(get_time() as f32*2.4).sin()*.5+.5;
+        let pulse=(get_time() as f32*2.4).sin()*0.5+0.5;
         let edge=if b.units[0].pos==b.objective {GREEN}else{GOLD};
-        draw_circle_lines(objective.x,objective.y,cell*.32+pulse*3.4,2.4,edge);
+        draw_circle_lines(objective.x,objective.y,cell*0.32+pulse*3.4,2.4,edge);
         draw_circle(objective.x,objective.y,3.0,edge);
         let label="HOLD PASS";
         if objective.y>area.y+36. {
             let width=measure_text(label,None,12,1.).width;
-            draw_rectangle(objective.x-width*.5-6.,objective.y-cell*.5-22.,
-                width+12.,17.,Color::new(.07,.11,.14,.92));
-            text(label,objective.x-width*.5,objective.y-cell*.5-9.,12.,GOLD);
+            draw_rectangle(objective.x-width*0.5-6.,objective.y-cell*0.5-22.,
+                width+12.,17.,Color::new(0.07,0.11,0.14,0.92));
+            text(label,objective.x-width*0.5,objective.y-cell*0.5-9.,12.,GOLD);
         }
     }
     // Physical depot markers. Supply connectivity is calculated by the
     // existing corridor model, not by painting an imaginary road on water.
-    for side in 0..2 {
+    for side in 0.0.2 {
         let p=sq(b.depots[side],area,view);
         if !area.contains(p) {continue;}
         let color=if side==0 {CYAN}else{ORANGE};
@@ -187,7 +187,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     }
     // Each squad has a legible supply indicator; colored corridor-status
     // links are not claimed to be pathfinding-geographical supply routes.
-    for i in 0..4 {
+    for i in 0.0.4 {
         let u=b.units[i];
         if u.troops==0 {continue;}
         let connected=b.connected(i);
@@ -201,7 +201,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
                 if j%2==0 {
                     let p=source+displacement*j as f32/segments as f32;
                     let q=source+displacement*(j+1) as f32/segments as f32;
-                    draw_line(p.x,p.y,q.x,q.y,1.0,Color::new(color.r,color.g,color.b,.24));
+                    draw_line(p.x,p.y,q.x,q.y,1.0,Color::new(color.r,color.g,color.b,0.24));
                 }
             }
         }
@@ -213,7 +213,7 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
             let next=sq(*location,area,view);
             if area.contains(last)&&area.contains(next) {
                 draw_line(last.x,last.y,next.x,next.y,2.2,
-                    Color::new(.04,.15,.19,.90));
+                    Color::new(0.04,0.15,0.19,0.90));
                 if (n+((get_time()*5.) as usize))%3!=0 {
                     draw_line(last.x,last.y,next.x,next.y,1.5,CYAN);
                 }
@@ -226,22 +226,22 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         if area.contains(at) {
             let color=if b.terrain_at(p)==Terrain::Sea {rgba(242,100,100)}
                 else if mode==Order::Attack {ORANGE}else{CYAN};
-            draw_rectangle_lines(at.x-cell*.5,at.y-cell*.5,cell,cell,1.6,color);
+            draw_rectangle_lines(at.x-cell*0.5,at.y-cell*0.5,cell,cell,1.6,color);
         }
     }
 
-    for i in 0..4 {
+    for i in 0.0.4 {
         let u=b.units[i];
         if u.troops==0 {continue;}
         let pos=screen(positions[i],area,view);
         if !area.contains(pos) {continue;}
         let color=if u.side==0 {CYAN}else{ORANGE};
-        let r=(cell*.245).clamp(7.,18.);
-        draw_circle(pos.x,pos.y,r+4.,Color::new(.02,.06,.09,.83));
-        let gap=r*.65;
-        for (ox,oy) in [(-.75,-.2),(.75,-.2),(-.42,.65),(.42,.65),(0.,-.75)] {
+        let r=(cell*0.245).clamp(7.,18.);
+        draw_circle(pos.x,pos.y,r+4.,Color::new(0.02,0.06,0.09,0.83));
+        let gap=r*0.65;
+        for (ox,oy) in [(-0.75,-0.2),(0.75,-0.2),(-0.42,0.65),(0.42,0.65),(0.,-0.75)] {
             draw_circle(pos.x+ox*gap,pos.y+oy*gap,
-                (r*.25).max(1.8),color);
+                (r*0.25).max(1.8),color);
         }
         draw_circle_lines(pos.x,pos.y,r+2.,
             if i==chosen {2.7}else{1.3},
@@ -252,9 +252,9 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         let width=(r*2.4).max(22.);
         let fraction=(u.troops as f32/(if u.side==0 {300.}else{520.}))
             .clamp(0.,1.);
-        draw_rectangle(pos.x-width*.5,pos.y+r+7.,width,4.,rgba(22,38,46));
-        draw_rectangle(pos.x-width*.5,pos.y+r+7.,width*fraction,4.,
-            if fraction>.30 {GREEN}else{ORANGE});
+        draw_rectangle(pos.x-width*0.5,pos.y+r+7.,width,4.,rgba(22,38,46));
+        draw_rectangle(pos.x-width*0.5,pos.y+r+7.,width*fraction,4.,
+            if fraction>0.30 {GREEN}else{ORANGE});
         let label=format!("{}",u.troops);
         center_text(&label,vec2(pos.x,pos.y-r-11.),13.,WHITE);
         if u.routing {
@@ -270,9 +270,9 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         let opacity=(1.-elapsed/1.5).clamp(0.,1.);
         let color=Color::new(fx.color.r,fx.color.g,fx.color.b,opacity);
         let dim=measure_text(&fx.message,None,15,1.);
-        draw_rectangle(pos.x-dim.width*.5-4.,
+        draw_rectangle(pos.x-dim.width*0.5-4.,
             pos.y-33.-elapsed*13.-15.,dim.width+8.,19.,
-            Color::new(.05,.10,.13,.70*opacity));
+            Color::new(0.05,0.10,0.13,0.70*opacity));
         center_text(&fx.message,
             vec2(pos.x,pos.y-33.-elapsed*13.),15.,color);
     }
@@ -303,7 +303,7 @@ fn cause_label(cause:Option<VictoryReason>)->&'static str {
 }
 fn board_layout(sw:f32,sh:f32)->(Rect,[Rect;2],[Rect;4],[Rect;5],bool) {
     let wide=sw>=sh*1.22;
-    let control_width=if wide {(sw*.31).clamp(280.,345.)}else{sw-20.};
+    let control_width=if wide {(sw*0.31).clamp(280.,345.)}else{sw-20.};
     let origin_x=if wide {sw-control_width-10.}else{10.};
     let bottom_start=if wide {142.}else{(sh-207.).max(426.)};
     let area=if wide {
@@ -379,7 +379,7 @@ async fn main() {
         if active.len()>=2 {
             suppress_tap=true;
             gesture=None;
-            let middle=(active[0].position+active[1].position)*.5;
+            let middle=(active[0].position+active[1].position)*0.5;
             let distance=active[0].position.distance(active[1].position);
             if let Some((old_distance,old_middle))=pinch_prev {
                 pan(&mut camera,zoom,area,middle-old_middle);
@@ -392,9 +392,9 @@ async fn main() {
         } else {pinch_prev=None;}
         if active.is_empty() && suppress_tap {suppress_tap=false;}
         let (mx,my)=mouse_position();
-        let wheel=mouse_wheel().1;
-        if wheel.abs()>.001 && area.contains(vec2(mx,my)) {
-            zoom_on(&mut camera,&mut zoom,(1.+wheel*.14).max(.75),
+        let wheel=mouse_wheel()0.1;
+        if wheel.abs()>0.001 && area.contains(vec2(mx,my)) {
+            zoom_on(&mut camera,&mut zoom,(1.+wheel*0.14).max(0.75),
                 vec2(mx,my),area);
         }
 
@@ -469,7 +469,7 @@ async fn main() {
                             message="New siege. Order squads, then press PLAY.".into();
                         }
                         3=>zoom_on(&mut camera,&mut zoom,1.25,area.center(),area),
-                        4=>zoom_on(&mut camera,&mut zoom,.8,area.center(),area),
+                        4=>zoom_on(&mut camera,&mut zoom,0.8,area.center(),area),
                         _=>{}
                     }
                 } else if area.contains(p) {
@@ -485,7 +485,7 @@ async fn main() {
                 if let Some(g)=gesture.take() {
                     if !g.dragging && g.origin.distance(p)<11. && area.contains(p) {
                         let target=cell_from(p,area,world_view(camera,zoom,area));
-                        if let Some(i)=(0..2).find(|&i|battle.units[i].troops>0
+                        if let Some(i)=(0.0.2).find(|&i|battle.units[i].troops>0
                             && battle.units[i].pos==target) {
                             chosen=i;
                             message=format!("{} selected.",
@@ -493,7 +493,7 @@ async fn main() {
                         } else if matches!(mode,Order::Move|Order::Attack) {
                             if battle.issue_player_order(chosen,mode,target) {
                                 message=format!("{} squad {} to ({},{}).",
-                                    mode.label(),chosen+1,target.0,target.1);
+                                    mode.label(),chosen+1,target0.0,target0.1);
                             } else {
                                 message="Invalid destination or squad is routing.".into();
                             }
@@ -505,10 +505,10 @@ async fn main() {
             }
         }
 
-        let turn_duration=if fast {.36_f32}else{.72_f32};
+        let turn_duration=if fast {0.36_f32}else{0.72_f32};
         if running && !battle.ended {
-            accumulator+=get_frame_time().min(.12);
-            for _ in 0..3 {
+            accumulator+=get_frame_time().min(0.12);
+            for _ in 0.0.3 {
                 if accumulator<turn_duration || battle.ended {break;}
                 accumulator-=turn_duration;
                 previous_positions=std::array::from_fn(|i|battle.units[i].pos);
@@ -520,8 +520,8 @@ async fn main() {
                 if battle.stats[0].combat_lost>losses_before[0] {
                     let loss=battle.stats[0].combat_lost-losses_before[0];
                     floaters.push(Floater{
-                        at:vec2(battle.units[0].pos.0 as f32,
-                            battle.units[0].pos.1 as f32),
+                        at:vec2(battle.units[0].pos0.0 as f32,
+                            battle.units[0].pos0.1 as f32),
                         message:format!("-{} IN BATTLE",loss),born:get_time(),color:ORANGE
                     });
                     message=format!("Your army lost {} soldiers in combat.",loss);
@@ -529,8 +529,8 @@ async fn main() {
                 if battle.stats[1].combat_lost>losses_before[1] {
                     let loss=battle.stats[1].combat_lost-losses_before[1];
                     floaters.push(Floater{
-                        at:vec2(battle.units[2].pos.0 as f32,
-                            battle.units[2].pos.1 as f32),
+                        at:vec2(battle.units[2].pos0.0 as f32,
+                            battle.units[2].pos0.1 as f32),
                         message:format!("-{} ENEMY",loss),born:get_time(),color:GREEN
                     });
                 }
@@ -580,7 +580,7 @@ async fn main() {
             text(&primary_state(&battle,chosen),control_x,info_y+20.,
                 (sw/35.).clamp(9.,12.),WHITE);
         }
-        for i in 0..2 {
+        for i in 0.0.2 {
             let u=battle.units[i];
             let name=if i==0 {"MAIN"}else{"SCOUT"};
             button(squad_buttons[i],
@@ -630,12 +630,12 @@ async fn main() {
         text(&textmsg,10.,banner_y-4.,(sw/35.).clamp(10.,14.),WHITE);
 
         if battle.ended {
-            let box_w=(sw*.86).min(390.);
+            let box_w=(sw*0.86).min(390.);
             let box_h=190.;
-            let rx=(sw-box_w)*.5;
-            let ry=(sh-box_h)*.43;
+            let rx=(sw-box_w)*0.5;
+            let ry=(sh-box_h)*0.43;
             draw_rectangle(rx-5.,ry-5.,box_w+10.,box_h+10.,
-                Color::new(.025,.05,.075,.95));
+                Color::new(0.025,0.05,0.075,0.95));
             draw_rectangle_lines(rx,ry,box_w,box_h,2.,
                 if battle.winner==Some(0) {GREEN}else{ORANGE});
             let headline=match battle.winner {
@@ -643,19 +643,19 @@ async fn main() {
                 Some(1)=>"DEFEAT",
                 _=>"DRAW",
             };
-            center_text(headline,vec2(sw*.5,ry+45.),30.,
+            center_text(headline,vec2(sw*0.5,ry+45.),30.,
                 if battle.winner==Some(0) {GREEN}else{ORANGE});
             let cause=cause_label(battle.victory_reason);
             // Two lines to keep the cause legible on narrow screens.
             let short=if cause.len()>34 {
                 format!("{}...",cause.chars().take(31).collect::<String>())
             }else{cause.into()};
-            center_text(&short,vec2(sw*.5,ry+93.),14.,WHITE);
+            center_text(&short,vec2(sw*0.5,ry+93.),14.,WHITE);
             center_text(&format!("BLUE {}    ORANGE {}",
                 battle.remaining(0),battle.remaining(1)),
-                vec2(sw*.5,ry+127.),16.,MUTED);
+                vec2(sw*0.5,ry+127.),16.,MUTED);
             center_text("Tap NEW MAP to play again",
-                vec2(sw*.5,ry+161.),14.,GOLD);
+                vec2(sw*0.5,ry+161.),14.,GOLD);
         }
         next_frame().await;
     }
