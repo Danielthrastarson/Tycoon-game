@@ -145,35 +145,33 @@ struct VisualEvent {
     at: f64,
 }
 
-fn clamp_center(center: &mut Vec2, zoom: f32) {
-    let span_x = (WIDTH as f32 / zoom).clamp(10.0, WIDTH as f32);
-    let span_y = (HEIGHT as f32 / zoom).clamp(8.0, HEIGHT as f32);
-    center.x = center.x.clamp(span_x * 0.5, WIDTH as f32 - span_x * 0.5);
-    center.y = center.y.clamp(span_y * 0.5, HEIGHT as f32 - span_y * 0.5);
+fn clamp_center(center: &mut Vec2, zoom: f32, board: Rect) {
+    let view=view_rect(*center,zoom,board);
+    *center=vec2(view.x+view.w*0.5,view.y+view.h*0.5);
 }
 
 fn pan_by_pixels(center: &mut Vec2, zoom: f32, board: Rect, delta: Vec2) {
-    let view = view_rect(*center, zoom);
+    let view = view_rect(*center, zoom,board);
     center.x -= delta.x * view.w / board.w;
     center.y -= delta.y * view.h / board.h;
-    clamp_center(center, zoom);
+    clamp_center(center, zoom, board);
 }
 
 /// Keep the terrain below the finger or mouse fixed while changing zoom.
 fn zoom_at(center: &mut Vec2, zoom: &mut f32, scale: f32, anchor: Vec2, board: Rect) {
-    let before = view_rect(*center, *zoom);
+    let before = view_rect(*center, *zoom, board);
     let point_before = vec2(
         before.x + ((anchor.x - board.x) / board.w) * before.w,
         before.y + ((anchor.y - board.y) / board.h) * before.h,
     );
     *zoom = (*zoom * scale).clamp(1.0, 5.0);
-    let after = view_rect(*center, *zoom);
+    let after = view_rect(*center, *zoom, board);
     let point_after = vec2(
         after.x + ((anchor.x - board.x) / board.w) * after.w,
         after.y + ((anchor.y - board.y) / board.h) * after.h,
     );
     *center += point_before - point_after;
-    clamp_center(center, *zoom);
+    clamp_center(center, *zoom,board);
 }
 
 fn screen_pos_from_world(pos: Vec2, board: Rect, view: Rect) -> Vec2 {
@@ -186,11 +184,17 @@ fn cell_to_screen(pos:(i16,i16),board:Rect,view:Rect)->Vec2 {
         board.y+(pos.1 as f32+0.5-view.y)/view.h*board.h)
 }
 
-fn view_rect(center:Vec2,zoom:f32)->Rect {
-    let w=(WIDTH as f32/zoom).clamp(10.,WIDTH as f32);
-    let h=(HEIGHT as f32/zoom).clamp(8.,HEIGHT as f32);
-    Rect::new((center.x-w*0.5).clamp(0.,WIDTH as f32-w),
-        (center.y-h*0.5).clamp(0.,HEIGHT as f32-h),w,h)
+/// Aspect-correct camera. The map fills the available phone display,
+/// cropping the distant world horizontally instead of wasting half the screen.
+fn view_rect(center:Vec2,zoom:f32,board:Rect)->Rect {
+    let mut h=(HEIGHT as f32/zoom).clamp(8.0,HEIGHT as f32);
+    let mut w=h*board.w/board.h;
+    if w>WIDTH as f32 {
+        w=WIDTH as f32;
+        h=w*board.h/board.w;
+    }
+    Rect::new((center.x-w*0.5).clamp(0.0,(WIDTH as f32-w).max(0.0)),
+        (center.y-h*0.5).clamp(0.0,(HEIGHT as f32-h).max(0.0)),w,h)
 }
 
 fn map_cell(pos:Vec2,board:Rect,view:Rect)->(i16,i16) {
@@ -222,7 +226,7 @@ async fn main() {
     let mut accumulator=0.0_f32;
     let mut mode=Order::Move;
     let mut zoom=1.0_f32;
-    let mut center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
+    let mut center=vec2(26.0,HEIGHT as f32*0.5);
     let mut pinch_prev: Option<(f32, Vec2)> = None;
     let mut map_gesture: Option<MapGesture> = None;
     let mut suppress_single_touch = false;
@@ -251,15 +255,16 @@ async fn main() {
         let rail_w=if wide {(sw*0.32).clamp(285.,340.)} else {sw};
         let rail_x=if wide {sw-rail_w} else {0.};
         let controls_y=if wide {178.} else {(sh-211.).max(350.)};
-        let board_region_w=if wide {rail_x-24.} else {sw-18.};
-        let board_region_h=if wide {sh-108.} else {controls_y-98.};
-        let map_scale=(board_region_w/WIDTH as f32).min(board_region_h/HEIGHT as f32);
-        let board=Rect::new(
-            if wide {12.+(board_region_w-WIDTH as f32*map_scale)*0.5}
-            else {(sw-WIDTH as f32*map_scale)*0.5},
-            82.+(board_region_h-HEIGHT as f32*map_scale)*0.4,
-            WIDTH as f32*map_scale,HEIGHT as f32*map_scale,
-        );
+        // Full-bleed strategy viewport. The simulation has fixed cells, but
+        // its camera does not need to show all 72x52 cells simultaneously.
+        // On phones we show a tall portrait slice that fills the display.
+        let board=if wide {
+            Rect::new(12.0,82.0,(rail_x-24.0).max(100.0),
+                (sh-100.0).max(100.0))
+        } else {
+            Rect::new(9.0,82.0,(sw-18.0).max(100.0),
+                (controls_y-146.0).max(100.0))
+        };
         let grid_side=7.;
         let button_w=(rail_w-24.-2.*grid_side)/3.;
         let button_h=49.;
@@ -327,7 +332,7 @@ async fn main() {
                         else {"Paused. Issue orders, then resume."}.into();}
                     1=>{seed=seed.wrapping_add(1);world=World::new(seed);
                         selected=world.armies[0].id;mode=Order::Move;
-                        zoom=1.;center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
+                        zoom=1.;center=vec2(26.0,HEIGHT as f32*0.5);
                         last_texture_epoch=u64::MAX;
                         map_gesture=None;
                         pinch_prev=None;
@@ -391,7 +396,7 @@ async fn main() {
                     if !gesture.dragged &&
                         (finish-gesture.start).length()<DRAG_THRESHOLD_PX &&
                         board.contains(finish) {
-                        let cell=map_cell(finish,board,view_rect(center,zoom));
+                        let cell=map_cell(finish,board,view_rect(center,zoom,board));
                         // A tap near your army selects; tapping elsewhere
                         // issues one command only when the finger lifts.
                         let picked=world.armies.iter()
@@ -536,7 +541,7 @@ async fn main() {
 
         // Readable, minimal pixel-art geography; overlays are projections of
         // the same Rust world, not independent gameplay data.
-        let view=view_rect(center,zoom);
+        let view=view_rect(center,zoom,board);
         draw_texture_ex(&texture,board.x,board.y,WHITE,DrawTextureParams{
             source:Some(Rect::new(view.x*MAP_RASTER as f32,
                 view.y*MAP_RASTER as f32,
