@@ -18,10 +18,13 @@ jobs:
         run: cargo build --release --bin society --target wasm32-unknown-unknown
       - name: Compile competitive Frontier browser game
         run: cargo build --release --bin frontier --target wasm32-unknown-unknown
+      - name: Compile playable tactical siege against the proven Rust combat engine
+        run: cargo build --release --bin tactics --target wasm32-unknown-unknown
       - name: Stage and serve the website
         run: |
           cp target/wasm32-unknown-unknown/release/society.wasm web/game.wasm
           cp target/wasm32-unknown-unknown/release/frontier.wasm web/frontier.wasm
+          cp target/wasm32-unknown-unknown/release/tactics.wasm web/tactics.wasm
           nohup python3 -m http.server 8000 --bind 127.0.0.1 --directory web >/tmp/genesis-web.log 2>&1 &
           for i in $(seq 1 20); do
             if curl -fsSI http://127.0.0.1:8000/game.wasm >/dev/null; then exit 0; fi
@@ -43,6 +46,7 @@ jobs:
         run: |
           node tests/mobile_smoke.mjs
           node tests/frontier_smoke.mjs
+          node tests/tactics_smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
