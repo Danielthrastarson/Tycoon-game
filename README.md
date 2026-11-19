@@ -1,70 +1,76 @@
-# Genesis V0.4 — First Army
+# Genesis V0.4.1 — Playable First Army (Mobile UI Fix)
 
-**Play on your phone:** https://danielthrastarson.github.io/Tycoon-game/
+**Play:** https://danielthrastarson.github.io/Tycoon-game/
 
-**Research labs:** [Invention Lab](https://danielthrastarson.github.io/Tycoon-game/invention.html) · [Voxel Universe](https://danielthrastarson.github.io/Tycoon-game/universe.html)
+**Research labs:** [Circuits](https://danielthrastarson.github.io/Tycoon-game/invention.html) · [Voxels](https://danielthrastarson.github.io/Tycoon-game/universe.html)
 
-Genesis is an agent-based sandbox. **Only the military is under direct player control.** Civilians continue gathering, moving, interacting and developing observer-detected social groups.
+A minimal autonomous-society simulation. Only the player's military orders are under direct control; no populations or kingdoms are spawned when an army is recruited.
 
-## V0.4 gameplay
+## Start playing — only two steps
 
-- A 128×128 world initially contains 100 autonomous agents with no predefined factions or kingdoms.
-- Press **RECRUIT**, then tap near some people: the eight closest living agents become your squad. These are existing agents, not new units.
-- Press **MOVE**, then tap the desired position. Squad agents travel at most one cell per simulation tick.
-- Press **HOLD**, then tap a resource area to guard. Guards near the chosen objective can deny access to civilians attempting to gather food. If civilians locally outnumber guards, the defence is overrun and access resumes.
-- Press **RETREAT** to order the squad back to its original recruitment point; **DISBAND** returns soldiers to autonomous civilian behaviour.
-- Soldiers consume energy just like civilians, with extra movement and guard upkeep, and can only replenish energy from resources at their own physical locations.
-- The player doesn't build a kingdom, control resource production, spawn soldiers, or manually dictate civilian lives.
-- Cyan outlined dots = commanded soldiers. White/other colored dots = civilians. Green pixels = real resource stock. Lines = independently observed interactions. The army's objective is shown with a ring and directional line.
-- The social observer still assigns colors to persistent interaction networks; these are **not** military allegiances or legally owned territories.
-- No lethal battles, weapons, combat AI, reproduction, technology or persistent territorial property yet.
+1. **Tap anywhere on the map.** The eight closest living agents become your cyan-colored squad; the world starts moving.
+2. **Tap somewhere else to MOVE your army.** Or press **HOLD**, then tap a green food field to defend it. The first simple mission is to hold an area with at least three guards nearby for 20 simulation ticks.
 
-## Phone controls
+The first world starts **paused** so you can understand the map before your people starve. No menu interaction is required for the first recruitment.
 
-| Button | What it does |
-| --- | --- |
-| PAUSE / RUN | Stop/start autonomous simulation |
-| STEP | One deterministic simulation tick |
-| SPEED | 2, 8, 24 ticks per second |
-| NEW WORLD | Reset to a new reproducible initial seed |
-| RECRUIT | Tap an area to choose 8 nearby living agents |
-| MOVE | Tap a target for your squad |
-| HOLD | Tap a resource location to defend |
-| RETREAT | Return to recruitment position |
-| DISBAND | Return squad to civilian life |
-| SHARE ON/OFF | Enable/disable civilian resource transfers |
-| GROUPS, LINES, FOOD | Toggle observation layers only |
-| ZOOM-/ZOOM+, CENTER | Zoom, pan or reset view; pinch and drag work |
-| Tap a dot | Inspect energy and group identity |
+### Main controls
 
-## Scientific architecture
+- **PLAY / PAUSE**: run or stop the simulation.
+- **RECRUIT**: tap again to select a new squad of eight living civilians.
+- **NEW WORLD**: reset with a fresh deterministic seed, paused.
+- **MOVE**: select your army's movement destination (or just tap the map).
+- **HOLD**: tap a location for local resource-access defence.
+- **RETREAT**: go back to your recruitment site.
+- **DISBAND**: restore soldiers to autonomous civilian foraging.
+- **ZOOM +**: zoom in. Pinch and drag also work on phones.
+- **OPTIONS**: second page with back, single-step, speed, food, groups, interaction lines, civilian sharing, zoom out and center.
 
-The authoritative simulator is \`src/society.rs\`. In \`src/military.rs\`, \`Squad\` and \`Order\` encode *player interventions*: military obedience is an explicit game mechanic, not an emergent institution. Army members are actual agents in the same resource and energy ledger as civilians. The renderer \`src/bin/society.rs\` only displays and submits orders.
+On desktop and landscape screens, controls move to a right-hand panel instead of covering the map.
 
-For a defended resource tile, the nonlethal access contest compares the number of locally present soldiers with the number of civilian challengers. A defended tile can be accessed when civilians outnumber defenders, but **no civilian is physically injured**. This is an intentional simplified test of organized resource access, not a realistic warfare model.
+### What the visuals mean
 
-The read-only observer measures repeated interaction ties. The presence of detected groups does not prove cooperation, institutional stability or spontaneous formation of military organizations.
+- White/colored dots = autonomous people (colors for independently observed social groups).
+- Cyan outlined dots = your currently commanded squad members.
+- Green patches = replenishable local food stock.
+- Thin lines between civilians = observed social contacts.
+- Cyan circle and line = your military destination; they do not confer ownership.
+- The status panel shows live squad size, order, mean energy, and the separate **20-tick HOLD tutorial objective**. This objective only observes events; it never modifies the simulation's physics.
 
-## Matched-seed experiments
+## Scientific and gameplay limits
+
+- The army consists of actual living agents from the starting population of 100, not spawned military units.
+- Recruited agents move at most one cell per tick and spend energy. They forage locally and can die from starvation.
+- Guards can deny food access when they locally outnumber challengers. If civilians outnumber them, the defence fails without damage or death from combat.
+- Civilian movement, gathering, sharing, communication and social-network detection continue independently.
+- The simulator **assumes** programmable foraging, communication and command obedience; these are designed behaviours, not emergent discoveries.
+- Observed groups are not kingdoms or legally owned territories. No actual weapons, reproduction, government, technology tree or economic specialization is implemented.
+- Controlled experiments show armies currently struggle to survive long deployments; supply chains remain a future milestone.
+
+## Browser playtesting
+
+This repository now runs an automated **real Chromium playtest** that builds the actual Rust WebAssembly binary, serves the website, opens it at three viewport sizes, and uses real touchscreen/mouse actions to:
+
+1. Verify that the canvas renders rather than remaining blank.
+2. Recruit eight cyan soldiers by tapping the map.
+3. Issue MOVE, HOLD and RETREAT commands.
+4. DISBAND and confirm cyan soldier highlights disappear.
+5. Check for JavaScript errors or failed resource requests.
+6. Upload screenshots so that layout and usability can be inspected.
+
+See [Browser Playtest GitHub Action](https://github.com/Danielthrastarson/Tycoon-game/actions/workflows/browser-playtest.yml). GitHub Pages deployment also checks that the public homepage and \`game.wasm\` actually respond after publish.
+
+Browser automation does **not** prove your particular Android device's GPU, browser permissions or networking work. The homepage now displays an actionable error if its engine fails to start, instead of silently showing a blank canvas.
+
+## Engineering and verification
+
+The authoritative simulation is \`src/society.rs\`, command structures/tests are in \`src/military.rs\`, and the read-only mobile renderer is \`src/bin/society.rs\`. The new 20-tick Hold progress is a display-only tutorial, not a new social or physics rule.
 
 \`\`\`bash
 cargo test --lib
-cargo run --release --bin military_lab -- 600 8
+cargo run --release --bin military_lab -- 400 8
 cargo run --release --bin society_lab -- 1500 4
-cargo run --release --bin lab -- 400
 rustup target add wasm32-unknown-unknown
 cargo build --release --bin society --target wasm32-unknown-unknown
 \`\`\`
 
-\`military_lab\` compares three scenarios using **identical seeds**: no intervention, eight soldiers ordered to hold a productive resource site, and eight soldiers ordered to move toward another site. It checks the energy ledger **every tick** and prints living population, detected groups, denied access, overruns, harvested resources and surviving soldiers. We must not claim army intervention improves society until this experiment is replicated across many seeds.
-
-## Previous experiments
-
-- \`src/invention.rs\` and \`src/bin/invention.rs\`: Wireworld-inspired composable circuit research (V0.2).
-- \`src/core.rs\`, \`src/scale.rs\`, \`src/main.rs\`: conserved voxel universe (V0.1).
-
-They are independent substrates and remain playable as separate pages.
-
-## Develop in Android Codespaces
-
-Open the [GitHub project](https://github.com/Danielthrastarson/Tycoon-game) → Code → Codespaces. Run \`python3 dev.py\`, open forwarded port 8000 and refresh after saving. GitHub Actions tests and publishes changes to the main branch.
+To develop on a phone, open the GitHub repository in Codespaces and run \`python3 dev.py\`. Open forwarded port 8000; saving Rust changes rebuilds the WASM game. The previous physics and invention laboratories remain playable as separate pages.

@@ -1,0 +1,40 @@
+name: Genesis — Browser Playtest
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, fix-playability-mobile-ui-v041]
+permissions:
+  contents: read
+jobs:
+  browser-playtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Compile actual Genesis browser game
+        run: cargo build --release --bin society --target wasm32-unknown-unknown
+      - name: Stage and serve the website
+        run: |
+          cp target/wasm32-unknown-unknown/release/society.wasm web/game.wasm
+          nohup python3 -m http.server 8000 --bind 127.0.0.1 --directory web >/tmp/genesis-web.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsSI http://127.0.0.1:8000/game.wasm >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/genesis-web.log
+          exit 1
+      - name: Install browser test tools
+        run: |
+          npm install --no-save playwright pngjs
+          npx playwright install chromium --with-deps
+      - name: Playtest touch and canvas across viewports
+        run: node tests/mobile_smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genesis-browser-screenshots
+          path: playtest-artifacts/
+          if-no-files-found: ignore
