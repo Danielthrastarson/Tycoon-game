@@ -103,6 +103,12 @@ fn make_terrain_texture(world:&Battle)->Texture2D {
     texture.set_filter(FilterMode::Linear);
     texture
 }
+/// Map changes reuse one GPU allocation instead of leaking textures.
+fn refresh_terrain_texture(texture:&Texture2D,world:&Battle) {
+    let bitmap=build_atlas(world,DEFAULT_PIXELS_PER_CELL);
+    texture.update_from_bytes(bitmap.width as u32,bitmap.height as u32,
+        &bitmap.rgba);
+}
 fn interpolated(a:(i16,i16),b:(i16,i16),alpha:f32)->Vec2 {
     vec2(a.0 as f32,a.1 as f32).lerp(
         vec2(b.0 as f32,b.1 as f32),alpha)
@@ -330,7 +336,7 @@ async fn main() {
     let layouts=[Layout::Ridge,Layout::RiverFord,Layout::SplitValley];
     let mut layout_idx=0usize;
     let mut battle=reset(seed,layouts[layout_idx]);
-    let mut landscape=make_terrain_texture(&battle);
+    let landscape=make_terrain_texture(&battle);
     let mut previous_positions:[(i16,i16);4]=std::array::from_fn(|i|
         battle.units[i].pos);
     let mut chosen=0usize;
@@ -415,7 +421,7 @@ async fn main() {
             seed+=1;
             layout_idx=(layout_idx+1)%layouts.len();
             battle=restart(seed,layout_idx);
-            landscape=make_terrain_texture(&battle);
+            refresh_terrain_texture(&landscape,&battle);
             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
             chosen=0;mode=Order::Hold;
             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
@@ -471,7 +477,7 @@ async fn main() {
                             seed+=1;
                             layout_idx=(layout_idx+1)%layouts.len();
                             battle=restart(seed,layout_idx);
-                            landscape=make_terrain_texture(&battle);
+                            refresh_terrain_texture(&landscape,&battle);
                             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
                             chosen=0;mode=Order::Hold;
                             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
