@@ -14,13 +14,15 @@ const chrome = await chromium.launch({
 });
 const errors=[];
 for (const scenario of [
-  {name:'android',size:{width:393,height:852},mobile:true},
-  {name:'smallphone',size:{width:360,height:640},mobile:true},
-  {name:'desktop',size:{width:1200,height:800},mobile:false},
+  {name:'android-dpr3',size:{width:393,height:852},mobile:true,dpr:3},
+  {name:'smallphone-dpr3',size:{width:360,height:640},mobile:true,dpr:3},
+  {name:'fold-cover',size:{width:344,height:882},mobile:true,dpr:3},
+  {name:'fold-unfolded',size:{width:768,height:968},mobile:true,dpr:2.5},
+  {name:'desktop',size:{width:1200,height:800},mobile:false,dpr:1},
 ]) {
   const context = await chrome.newContext({
     viewport:scenario.size,isMobile:scenario.mobile,hasTouch:scenario.mobile,
-    deviceScaleFactor:1,
+    deviceScaleFactor:scenario.dpr,
   });
   const page=await context.newPage();
   page.on('pageerror', err=>errors.push(scenario.name+': '+err.message));
@@ -34,7 +36,11 @@ for (const scenario of [
     rect:el.getBoundingClientRect().toJSON()
   }));
   if (meta.width < 100 || meta.height < 100) throw Error(scenario.name+': canvas not initialized: '+JSON.stringify(meta));
-  const before = await page.screenshot({path:path.join(output,scenario.name+'-before.png')});
+  // Physical Android screens are 2–4× DPI. The renderer MUST render in
+  // CSS pixels, or buttons shrink below touch-target size on actual phones.
+  if (Math.abs(meta.width-meta.rect.width)>2 || Math.abs(meta.height-meta.rect.height)>2)
+    throw Error(scenario.name+': high-DPI framebuffer/input coordinate mismatch: '+JSON.stringify(meta));
+  const before = await page.screenshot({path:path.join(output,scenario.name+'-before.png'),scale:'css'});
   const png=PNG.sync.read(before);
   const unique=new Set();
   // Sample only the central game-map area, not the browser overlays.
@@ -78,21 +84,55 @@ for (const scenario of [
   };
   const beforeCyan=cyanCount(png);
   await tap(point);
-  const recruited=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-recruited.png')}));
+  const recruited=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-recruited.png'),scale:'css'}));
   const afterCyan=cyanCount(recruited);
   if(afterCyan < beforeCyan+15) throw Error(scenario.name+': tap did not recruit visible cyan soldiers ('+beforeCyan+' -> '+afterCyan+')');
   // The main command menu remains visible. Tap MOVE, set a destination,
   // select HOLD, set its destination, retreat, then disband.
+  // The prior test only tapped the MAP. Reproduce the actual reported bug:
+  // press canvas-drawn buttons on a 3x-DPI phone and verify actual state change.
+  const buttonBg=async()=> {
+    const shot=PNG.sync.read(await page.screenshot({scale:'css'}));
+    const x=Math.round(panelX+18), y=Math.round(controlsY+8);
+    const i=(shot.width*y+x)*4;
+    return [shot.data[i],shot.data[i+1],shot.data[i+2]];
+  };
+  const pausedColor=await buttonBg();
+  await tap(buttonPoint(0)); // PLAY
+  const playingColor=await buttonBg();
+  if(playingColor[1]<=pausedColor[1]+20)
+    throw Error(scenario.name+': PLAY button did not switch state: '+pausedColor+' => '+playingColor);
+  await tap(buttonPoint(0)); // PAUSE
+  const pausedAgain=await buttonBg();
+  if(Math.abs(pausedAgain[1]-pausedColor[1])>15)
+    throw Error(scenario.name+': PAUSE button did not switch back: '+pausedColor+' => '+pausedAgain);
+  await tap(buttonPoint(8)); // OPTIONS
+  const optionsPng=PNG.sync.read(await page.screenshot({scale:'css'}));
+  const compareRegion=(a,b)=>{
+    let changed=0;
+    for(let y=Math.floor(controlsY+7);y<Math.floor(controlsY+40);y+=2)
+      for(let x=Math.floor(panelX+17);x<Math.floor(panelX+buttonWidth-8);x+=2){
+        const i=(a.width*y+x)*4;
+        if(Math.abs(a.data[i]-b.data[i])+Math.abs(a.data[i+1]-b.data[i+1])+Math.abs(a.data[i+2]-b.data[i+2])>28) changed++;
+      }
+    return changed;
+  };
+  // Options page changes the first button to BACK, and its text pixels.
+  // Note normal screenshot is captured after options; use the pre-OPTIONS
+  // recruited snapshot only for a rough page-difference check.
+  if(compareRegion(recruited,optionsPng)<25)
+    throw Error(scenario.name+': OPTIONS button did not change visible menu');
+  await tap(buttonPoint(0)); // BACK
   await tap(buttonPoint(3)); // MOVE
   await tap({x:boardX+boardSide*.78,y:boardY+boardSide*.70});
   await tap(buttonPoint(4)); // HOLD
   await tap({x:boardX+boardSide*.30,y:boardY+boardSide*.40});
   await tap(buttonPoint(5)); // RETREAT
   await tap(buttonPoint(6)); // DISBAND
-  const disbanded=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-after.png')}));
+  const disbanded=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-after.png'),scale:'css'}));
   const finalCyan=cyanCount(disbanded);
   if(finalCyan > Math.max(10,beforeCyan+5)) throw Error(scenario.name+': DISBAND did not remove the soldier highlight ('+finalCyan+')');
-  console.log(JSON.stringify({scenario:scenario.name,canvas:meta,gameColors:unique.size,
+  console.log(JSON.stringify({scenario:scenario.name,dpr:scenario.dpr,canvas:meta,gameColors:unique.size,
     recruitedCyan:afterCyan,disbandCyan:finalCyan,
     errors:errors.filter(e=>e.startsWith(scenario.name))}));
   await context.close();
