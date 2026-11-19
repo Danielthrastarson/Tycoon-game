@@ -24,6 +24,41 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## Genesis V0.4.5a — living battlefield terrain
+
+**[Play the new tactical landscape](https://danielthrastarson.github.io/Tycoon-game/tactics.html)**
+
+The tactical battle now uses a **deterministically generated, cached terrain
+atlas**, not a grid of solid-colored squares. Natural-looking shorelines,
+shallow water, rocky relief, gentle grassland variation and clusters of
+small tree crowns make the three existing Ridge, River Ford and Split
+Valley maps more legible and more inviting to explore.
+
+- The painterly map is generated once when a seed is loaded and uploaded to
+  one GPU texture. Pan/zoom are performed by cropping this same image, not by
+  regenerating pixels each frame.
+- The minimap uses that exact image, keeping the main camera and overview
+  visually consistent.
+- NEW MAP updates the existing GPU texture instead of continually allocating
+  additional large textures.
+- The underlying 15×9 logical battlefield, impassable water, objectives,
+  depot coordinates, routing, four combat primitives, AI and troop counts
+  are **unchanged**. The natural riverbank is a *visual edge treatment*, not
+  a promise that water outside the actual traversable crossing is passable.
+- No decorative roads or bridges are added at locations that the Rust
+  pathfinder considers impassable.
+- Browser screenshots and deterministic pixel tests check visual diversity,
+  identical results for the same seed, no changes from combat-rule ablations
+  and whether crossings remain visibly different from deep water.
+
+**Level 3 roadmap:** V0.4.5a terrain foundation (this release) →
+V0.4.5b coherent elevation, geographic landmarks and meaningful roads →
+V0.4.5c soldier formations, banners, particles →
+V0.4.5d cinematic camera, semantic zoom and cohesive HUD →
+V0.4.5e atmosphere, weather and seasons. These later features are not yet
+implemented. Performance is targeted for 60 FPS on Android, but must be
+measured on real devices before claiming it.
+
 ## Genesis Frontier V0.4.4 — playable tactical siege
 
 **[Play Tactical Siege](https://danielthrastarson.github.io/Tycoon-game/tactics.html)**
