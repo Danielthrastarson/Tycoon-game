@@ -57,6 +57,7 @@ for (const scenario of [
   const panelW=wide?Math.max(285,Math.min(370,scenario.size.width*.35)):scenario.size.width;
   const panelX=wide?scenario.size.width-panelW:0;
   const controlsY=wide?172:scenario.size.height-206;
+  const buttonWidth=(panelW-24-14)/3;
   const boardSide=Math.max(86,Math.min(
     wide?panelX-22:scenario.size.width-22,
     wide?scenario.size.height-112:controlsY-148));
