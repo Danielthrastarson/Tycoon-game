@@ -218,7 +218,7 @@ async fn main() {
     let mut world=World::new(seed);
     let mut selected=world.armies[0].id;
     let mut running=true;
-    let mut speed=8_usize;
+    let mut speed=14_usize;
     let mut accumulator=0.0_f32;
     let mut mode=Order::Move;
     let mut zoom=1.0_f32;
@@ -239,6 +239,7 @@ async fn main() {
     let mut last_texture_winter=false;
     // Presentation-only positions: simulation remains authoritative/integer.
     let mut visual_positions: HashMap<u32, Vec2> = HashMap::new();
+    let mut movement_origins: HashMap<u32, Vec2> = HashMap::new();
     let mut selected_supply=false;
     let mut supply_status_at=u64::MAX;
     let mut supply_status_id=0_u32;
@@ -331,6 +332,7 @@ async fn main() {
                         map_gesture=None;
                         pinch_prev=None;
                         visual_positions.clear();
+                        movement_origins.clear();
                         visual_events.clear();
                         cached_route_key=None;
                         cached_route.clear();
@@ -424,7 +426,7 @@ async fn main() {
             }
         }
         if is_key_pressed(KeyCode::Tab) {
-            speed=match speed {4=>8,8=>16,_=>4};
+            speed=match speed {8=>14,14=>22,_=>8};
             notice=format!("Speed: {speed} ticks per second.");
         }
 
@@ -433,6 +435,15 @@ async fn main() {
             let delta=1./speed as f32;
             let mut n=0;
             while accumulator>=delta && n<5 {
+                if (world.tick+1)%3==0 {
+                    // Simulation movement occurs every three ticks. Capture
+                    // each pre-step position for constant-speed presentation
+                    // until the next movement phase, without changing rules.
+                    movement_origins.clear();
+                    for a in &world.armies {
+                        movement_origins.insert(a.id,vec2(a.x as f32,a.y as f32));
+                    }
+                }
                 world.step();
                 // These effects are derived from *actual* battles/captures,
                 // never scripted progress or unearned visual territory.
@@ -486,13 +497,17 @@ async fn main() {
             supply_status_at=world.tick;
             supply_status_id=selected;
         }
-        let smoothing = 1.0 - (-get_frame_time().min(0.08)*11.0).exp();
+        let phase=if running {
+            ((world.tick%3) as f32 + accumulator*speed as f32)
+                .clamp(0.0,3.0)/3.0
+        } else {((world.tick%3) as f32)/3.0};
         for a in &world.armies {
-            let target=vec2(a.x as f32,a.y as f32);
-            let current=visual_positions.entry(a.id).or_insert(target);
-            // Only interpolate appearance; never modify authoritative position.
-            if (*current-target).length()>12.0 {*current=target;}
-            else {*current += (target-*current)*smoothing;}
+            let destination=vec2(a.x as f32,a.y as f32);
+            let origin=movement_origins.get(&a.id).copied()
+                .unwrap_or(destination);
+            // Constant velocity across a tile is visibly smoother than an
+            // exponential catch-up that stalls between simulation steps.
+            visual_positions.insert(a.id,origin.lerp(destination,phase));
         }
         visual_positions.retain(|id,_|world.armies.iter().any(|a|a.id==*id && a.troops>0));
         visual_events.retain(|effect|get_time()-effect.at<1.35);
