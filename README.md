@@ -1,90 +1,67 @@
-# Genesis V0.2 — Invention Lab
+# Genesis V0.3 — Emergent Societies
 
-**Play Invention Lab:** https://danielthrastarson.github.io/Tycoon-game/
+**Primary game:** https://danielthrastarson.github.io/Tycoon-game/
 
-**Open original 3D-layer Genesis universe:** https://danielthrastarson.github.io/Tycoon-game/universe.html
+**Older experiments:** [Invention Lab](https://danielthrastarson.github.io/Tycoon-game/invention.html) · [Voxel Universe](https://danielthrastarson.github.io/Tycoon-game/universe.html)
 
-## What changed?
+A minimal civilization-emergence **prototype**, not a simulation of full civilizations.
 
-The homepage is now a 2D, touch-friendly **emergent construction / invention sandbox**, so we can investigate composability before attempting simulated organisms or civilizations.
+## Playable model
+- A 128×128 two-dimensional world and **100 agents** initially without factions, labels, borders or leaders.
+- Resource-rich patches generated from a reproducible seed.
+- Every agent has a bounded internal energy budget and limited, local resource memory.
+- Each agent can **move**, **gather**, **transfer surplus energy** to a nearby hungry agent, and **communicate remembered food locations during transfers**.
+- Gathering moves energy from resource tiles to agents; consumption removes energy; regeneration introduces energy. A tick ledger explicitly accounts for all changes.
+- Energy-starved agents become inactive. No births or reproduction in this milestone.
+- **No predefined kingdoms, settlements, groups, property, currencies, war, technology or scripted empire events.**
+- Agent foraging and resource sharing are **programmed capabilities/policies**; their presence must not be misrepresented as emergent intelligence.
+- The group observer merely labels connected networks of 3 or more living agents with strong ties *earned by real transfers* and seen for 3 observation intervals. Group colors, dots and dotted circles are visualizations, not a change in agent behavior or ownership rights.
+- Group creation, stability, survival and cooperation advantages are **not guaranteed**, and require controlled experiments to establish.
 
-- 128×128 grid with only four basic states: empty, conductor, signal head and signal tail.
-- One uniform Wireworld-style transition function with 8 local neighbours.
-- No hardcoded gates, clocks, switches, organisms, intelligence or tech trees.
-- Signals, oscillation and more complicated mechanisms are arrangements of cells.
-- 2 starter configurations: a pulse on a wire and a circulating signal; empty sandbox is the third option.
-- Pause, single-step, adjust speed and edit your circuit while running.
-- Zoom, pan and draw with phone touches.
-- Capture 16×16 areas into four blueprint slots, stamp or rotate them.
-- Blueprint slots persist **locally in this browser on this device** using Web Storage; clearing site data removes them.
-- Independent pure-Rust lab logic has deterministic replay, pulse and loop tests, blueprint serialization and rotation tests.
-- The original conserved-matter 256×256×8 universe is preserved as a **separate experiment** at `universe.html`.
+## Visual language
+- Small light dots: agents without observed group membership.
+- Colored dots: members of a persistent, observed exchange network.
+- Fine lines: repeated sharing relationships.
+- Green background pixels: replenishable resources.
+- Dashed rings and names: observed group footprints, *not territory ownership*.
 
 ## Phone controls
+- **PAUSE/RUN**, **STEP**, **SPEED**: 2, 8, or 24 ticks per second.
+- **SHARE ON/OFF**: change one physics rule for an explicit experiment.
+- **GROUPS**, **LINES**, **FOOD**: independently toggle purely visual layers.
+- **NEW WORLD**: next deterministic seed and a complete reset.
+- **ZOOM ±**, drag and pinch: camera controls; camera never alters physics.
+- **CENTER**: whole map; **INFO**: legend/experiment explanation.
+- Tap a dot to inspect energy and any observed group identity.
 
-| Button | Function |
-| --- | --- |
-| RUN / PAUSE | Start or stop the cellular automaton |
-| STEP | Advance exactly one generation |
-| SPEED | Cycle 2, 8 and 24 ticks per second |
-| DEMO | Cycle wire / persistent loop / empty board (pauses) |
-| WIRE | Draw conductor |
-| PULSE | Draw electron head to initiate a signal |
-| TAIL | Draw electron tail |
-| ERASE | Erase cells |
-| PAN | Drag to move around the 128×128 world |
-| ZOOM – / + | Zoom out or in; pinch also works |
-| CLEAR | Empty the whole lab (does not delete blueprint slots) |
-| COPY | Tap the *center* of a 16×16 area to store it in the selected slot |
-| STAMP | Tap to paste that slot's pattern into the world |
-| ROTATE | Rotate stored blueprint clockwise |
-| SLOT | Cycle four persistent browser-local slots |
+## Architecture
+- `src/society.rs`: authoritative agent/resource dynamics, exchange memories, conservation-like energy ledger and **read-only Observer** for sociological measurements.
+- `src/bin/society.rs`: phone-first Macroquad map; never determines actions.
+- `src/bin/society_lab.rs`: headless matched-seed experiment comparing sharing ON vs OFF.
+- `src/invention.rs`, `src/bin/invention.rs`: V0.2 circuit composition experiment.
+- `src/core.rs`, `src/scale.rs`, `src/main.rs`: V0.1 conserved 3D voxel universe.
 
-Changing the board while running is an *experimenter intervention* rather than spontaneous emergence.
+These are three **different experimental models**, not one continuous physical substrate. V0.3 assumes agents. V0.2 assumes signal states. V0.1 assumes particles and heat.
 
-## Architecture and scientific scope
-
-- `src/invention.rs`: isolated four-state cellular automaton and blueprint library.
-- `src/bin/invention.rs`: Macroquad mobile UI. It reads and edits configurations, but doesn't contain any simulation laws.
-- `src/core.rs`, `src/scale.rs`, `src/main.rs`: previous Genesis V0.1 conserved voxel universe and viewer (unchanged).
-- `src/bin/lab.rs`: headless experiment for V0.1.
-
-**These are two different candidate physics models.** Wireworld is a deliberately engineered computing substrate, not a demonstration that computation spontaneously arose from the V0.1 particle model. Signal states are not conserved quantities; conservation claims apply to the original voxel universe only.
-
-Wireworld's fundamental rule is:
-- Empty stays empty.
-- Signal head becomes tail.
-- Tail becomes conductor.
-- Conductor becomes head if exactly 1 or 2 of its eight neighbours are heads; otherwise remains conductor.
-
-The engine never calls a `make_switch()`, `make_memory()` or `invent_technology()` function. Whether a composed configuration supports such behavior is an experimental result.
-
-## Develop on Android with Codespaces
-
-Open the [repository](https://github.com/Danielthrastarson/Tycoon-game), create a Codespace, then run:
-
-```bash
-python3 dev.py
-```
-
-Open the forwarded preview port 8000. Saving Rust files rebuilds the Invention Lab, then refresh the page. For the original universe, use the published `universe.html` or build the `genesis` binary separately.
-
-## Verify
-
+## Local verification
 ```bash
 cargo test --lib
+cargo run --release --bin society_lab -- 1200 8
 cargo run --release --bin lab -- 400
 rustup target add wasm32-unknown-unknown
-cargo build --release --bin invention --target wasm32-unknown-unknown
-cargo build --release --bin genesis --target wasm32-unknown-unknown
+cargo build --release --bin society --target wasm32-unknown-unknown
 ```
 
-GitHub Actions runs these checks before publishing both WebAssembly games.
+`society_lab` prints agent survival, persistent groups and transfers across matched seeds with and without sharing. A successful compile does not prove that meaningful social organization will arise.
 
-## Third-party browser storage code
+## Develop on an Android phone
+Open [Tycoon-game](https://github.com/Danielthrastarson/Tycoon-game), create a GitHub Codespace on `main`, run `python3 dev.py`, open forwarded port 8000, then refresh after saving. A push to `main` verifies and publishes all three WebAssembly experiences.
 
-The scripts in `web/scripts/` are used by `quad-storage`, which provides persistent browser Web Storage. Attribution:
-- [quad-storage](https://github.com/optozorax/quad-storage), MIT OR Apache-2.0; license texts in `third_party/quad-storage/`.
-- [sapp-jsutils](https://github.com/not-fl3/sapp-jsutils), MIT OR Apache-2.0.
-
-These are third-party integration scripts, separate from Genesis's simulation logic.
+## Limitations and next experiments
+- Fixed heuristic foraging/sharing, not learning or autonomous invention.
+- Agent population cannot reproduce.
+- Group detection based on graph connectivity; a group is not a kingdom.
+- No enforceable claims on territory, no social norms or institutions.
+- Resource generation and movement occur on a periodic toroidal 2D grid.
+- Need many-seed controls before claiming sharing improves survival or yields durable settlements.
+- No integrated 3D, yet; keep one physics system at a time.
