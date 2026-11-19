@@ -24,6 +24,8 @@ jobs:
         run: cargo run --release --bin lab -- 200
       - name: Compare matched-seed social worlds
         run: cargo run --release --bin society_lab -- 1500 4
+      - name: Exercise army command and intervention experiment
+        run: cargo run --release --bin military_lab -- 350 4
       - name: Compile all browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
