@@ -45,13 +45,56 @@ for (const scenario of [
     }
   }
   if (unique.size < 5) throw Error(scenario.name+': blank or unrendered WebAssembly canvas, '+unique.size+' colors: '+JSON.stringify(errors));
-  // Select or recruit on-map. WebKit/Android sends touch taps through Playwright.
-  const point={x:scenario.size.width*.5,y:Math.min(scenario.size.width*.55+105,scenario.size.height*.50)};
-  if (scenario.mobile) await page.touchscreen.tap(point.x, point.y);
-  else await page.mouse.click(point.x,point.y);
-  await page.waitForTimeout(300);
-  await page.screenshot({path:path.join(output,scenario.name+'-after.png')});
-  console.log(JSON.stringify({scenario:scenario.name,canvas:meta,gameColors:unique.size,errors:errors.filter(e=>e.startsWith(scenario.name))}));
+  // Real interactive playtest: tap the world to recruit existing people.
+  const wide=scenario.size.width>scenario.size.height*1.25;
+  const panelW=wide?Math.max(285,Math.min(370,scenario.size.width*.35)):scenario.size.width;
+  const panelX=wide?scenario.size.width-panelW:0;
+  const controlsY=wide?172:scenario.size.height-206;
+  const boardSide=Math.max(86,Math.min(
+    wide?panelX-22:scenario.size.width-22,
+    wide?scenario.size.height-112:controlsY-148));
+  const boardX=wide?12:(scenario.size.width-boardSide)*.5;
+  const boardY=87;
+  const point={x:boardX+boardSide*.5,y:boardY+boardSide*.5};
+  const tap=async ({x,y})=>{
+    if(scenario.mobile) await page.touchscreen.tap(x,y);
+    else await page.mouse.click(x,y);
+    await page.waitForTimeout(180);
+  };
+  const buttonPoint=i=>({
+    x:panelX+12+(i%3)*((panelW-24-14)/3+7)+((panelW-24-14)/3)/2,
+    y:controlsY+Math.floor(i/3)*60+26
+  });
+  const cyanCount=png=>{
+    let count=0;
+    for(let y=Math.ceil(boardY+5);y<Math.floor(boardY+boardSide-5);y++){
+      for(let x=Math.ceil(boardX+5);x<Math.floor(boardX+boardSide-5);x++){
+        const i=(png.width*y+x)*4;
+        const [r,g,b]=png.data.subarray(i,i+3);
+        if(b>230 && g>195 && r<130) count++;
+      }
+    }
+    return count;
+  };
+  const beforeCyan=cyanCount(png);
+  await tap(point);
+  const recruited=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-recruited.png')}));
+  const afterCyan=cyanCount(recruited);
+  if(afterCyan < beforeCyan+15) throw Error(scenario.name+': tap did not recruit visible cyan soldiers ('+beforeCyan+' -> '+afterCyan+')');
+  // The main command menu remains visible. Tap MOVE, set a destination,
+  // select HOLD, set its destination, retreat, then disband.
+  await tap(buttonPoint(3)); // MOVE
+  await tap({x:boardX+boardSide*.78,y:boardY+boardSide*.70});
+  await tap(buttonPoint(4)); // HOLD
+  await tap({x:boardX+boardSide*.30,y:boardY+boardSide*.40});
+  await tap(buttonPoint(5)); // RETREAT
+  await tap(buttonPoint(6)); // DISBAND
+  const disbanded=PNG.sync.read(await page.screenshot({path:path.join(output,scenario.name+'-after.png')}));
+  const finalCyan=cyanCount(disbanded);
+  if(finalCyan > Math.max(10,beforeCyan+5)) throw Error(scenario.name+': DISBAND did not remove the soldier highlight ('+finalCyan+')');
+  console.log(JSON.stringify({scenario:scenario.name,canvas:meta,gameColors:unique.size,
+    recruitedCyan:afterCyan,disbandCyan:finalCyan,
+    errors:errors.filter(e=>e.startsWith(scenario.name))}));
   await context.close();
 }
 await chrome.close();
