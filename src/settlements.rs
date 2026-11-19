@@ -7,7 +7,7 @@
 
 use crate::society::{StepReport, World, MAX_ENERGY};
 
-pub const MAX_CAMPS: usize = 24;
+pub const MAX_CAMPS: usize = 18;
 pub const CAMP_CAPACITY: u16 = 120;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,8 +50,8 @@ impl World {
     /// A building requires a repeatedly occupied resource tile, one energetic
     /// builder, and another nearby person with an actual strengthened tie.
     fn build_one_camp(&mut self, report: &mut StepReport) {
-        if !self.rules.construction || self.tick < 30 ||
-            self.tick % 4 != 0 || self.camps.len() >= MAX_CAMPS {
+        if !self.rules.construction || self.tick < 40 ||
+            self.tick % 6 != 0 || self.camps.len() >= MAX_CAMPS {
             return;
         }
         let len = self.agents.len();
@@ -60,14 +60,14 @@ impl World {
             let a = self.agents[i];
             if !a.alive || self.soldier(i) || a.energy < 78 { continue; }
             let pos = Self::at(a.x,a.y);
-            if self.tiles[pos].capacity < 12 || self.footprints[pos] < 6 { continue; }
-            if self.camp_near(a.x,a.y,7).is_some() { continue; }
-            let partner = self.agents.iter().enumerate().any(|(j,b)| {
-                i != j && b.alive && !self.soldier(j) &&
-                Self::distance((a.x,a.y),(b.x,b.y)) <= 4 &&
-                self.tie(i,j) >= 36
-            });
-            if !partner { continue; }
+            if self.tiles[pos].capacity < 16 || self.footprints[pos] < 12 { continue; }
+            if self.camp_near(a.x,a.y,11).is_some() { continue; }
+            let partner_count = self.agents.iter().enumerate().filter(|(j,b)| {
+                *j != i && b.alive && !self.soldier(*j) &&
+                Self::distance((a.x,a.y),(b.x,b.y)) <= 5 &&
+                self.tie(i,*j) >= 42
+            }).count();
+            if partner_count < 2 { continue; }
             self.agents[i].energy -= 14;
             report.metabolic_cost += 14;
             report.constructions += 1;
@@ -184,8 +184,8 @@ mod tests {
     fn existing_person_constructs_after_real_encounters() {
         let mut w = World::new(42);
         // Controlled physical-social conditions, without planting a camp.
-        w.tick = 40;
-        for j in 0..2 {
+        w.tick = 42;
+        for j in 0..3 {
             w.agents[j].x = 40;
             w.agents[j].y = 40;
             w.agents[j].energy = 100;
@@ -193,9 +193,11 @@ mod tests {
         let p = World::at(40,40);
         w.tiles[p].capacity = 20;
         w.tiles[p].stock = 20;
-        w.footprints[p] = 12;
+        w.footprints[p] = 20;
         w.ties[1] = 100;
         w.ties[100] = 100;
+        w.ties[2] = 100;
+        w.ties[200] = 100;
         let before = w.stored_energy();
         let mut report = StepReport::default();
         w.construction_and_storage(&mut report);
