@@ -12,7 +12,7 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
-SCENARIOS = ("mountain_pass", "supply_corridor", "open_field")
+SCENARIOS = ("mountain_pass", "supply_corridor", "open_field", "outnumbered_field")
 POLICIES = ("direct_rush", "pass_defense", "supply_raid", "adaptive")
 
 
