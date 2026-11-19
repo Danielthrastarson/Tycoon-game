@@ -39,7 +39,8 @@ def analyze(path: Path) -> str:
         if row["valid"] != "1":
             raise ValueError(f"invariant violation at seed {row['seed']}")
         key = (row["phase"], row["scenario"], row["policy"],
-               int(row["mask"]), int(row["seed_index"]), int(row["swap"]))
+               int(row["mask"]), int(row["seed_index"]), int(row["swap"]),
+               row.get("layout", "classic"))
         if key in by_key:
             raise ValueError(f"duplicate matched observation {key}")
         by_key[key] = row
@@ -49,6 +50,20 @@ def analyze(path: Path) -> str:
     phase = phases.pop()
     unique_seeds = {int(r["seed_index"]) for r in rows}
     present_masks = {int(r["mask"]) for r in rows}
+    layouts = sorted({r.get("layout", "classic") for r in rows})
+    map_signatures = defaultdict(set)
+    map_shapes = defaultdict(set)
+    for r in rows:
+        mapping = (r["scenario"], r["seed_index"], r["swap"],
+                   r.get("layout", "classic"))
+        if r.get("map_signature"):
+            map_signatures[mapping].add(
+                (r["map_signature"], r["objective_x"], r["objective_y"]))
+            map_shapes[(r["scenario"], r.get("layout", "classic"))].add(
+                r["map_signature"])
+    for case, signatures in map_signatures.items():
+        if len(signatures) != 1:
+            raise ValueError(f"map/objective mismatch across masks or policies: {case}")
     opponents = {r.get("opponent_policy", "standard") for r in rows}
     if len(opponents) != 1:
         raise ValueError("opponent variants must be analyzed as separate cohorts")
@@ -61,6 +76,7 @@ def analyze(path: Path) -> str:
         f"**Opponent AI:** {opponent}  ",
         f"**Runs:** {len(rows):,}  ",
         f"**Matched seeds:** {len(unique_seeds)}  ",
+        f"**Map layouts:** {', '.join(layouts)}  ",
         f"**Ablation masks:** {len(present_masks)}  ",
         "**Integrity:** all rows pass finite troop and provision audits",
         "",
@@ -94,7 +110,7 @@ def analyze(path: Path) -> str:
             "## Paired contrasts (matched seeds and both geographic side swaps)",
             "",
             "Intervals are deterministic 95% percentile bootstrap ranges. The",
-            "bootstrap resamples **seeds** as clusters, retaining both side",
+            "bootstrap resamples **seeds** as clusters, retaining every layout and both side",
             "assignments; this is exploratory, not a multiple-testing-adjusted",
             "confirmatory claim.",
             "",
@@ -105,14 +121,17 @@ def analyze(path: Path) -> str:
             per_seed = {}
             for seed in unique_seeds:
                 diff = []
-                for swapped in [0, 1]:
-                    first = by_key.get((phase, scenario, "adaptive", 15, seed, swapped))
-                    second = by_key.get((phase, scenario, "direct_rush", 15, seed, swapped))
-                    if first is None or second is None:
-                        raise ValueError(f"missing paired policy run {scenario}/{seed}/{swapped}")
-                    diff.append(int(first["small_win"]) - int(second["small_win"]))
-                per_seed[seed] = sum(diff) / 2
+                for layout in layouts:
+                    for swapped in [0, 1]:
+                        first = by_key.get((phase, scenario, "adaptive", 15, seed, swapped, layout))
+                        second = by_key.get((phase, scenario, "direct_rush", 15, seed, swapped, layout))
+                        if first is None or second is None:
+                            raise ValueError(f"missing paired policy run {scenario}/{layout}/{seed}/{swapped}")
+                        diff.append(int(first["small_win"]) - int(second["small_win"]))
+                per_seed[seed] = sum(diff) / len(diff)
             mean, low, high = clustered_ci(per_seed)
+            if not all(-1.000001 <= v <= 1.000001 for v in [mean, low, high]):
+                raise ValueError("paired win probability contrasts exceed 100 percentage points")
             lines.append(f"| {scenario} | Adaptive − Rush actual win probability | "
                          f"{mean*100:+.1f} pp | [{low*100:+.1f}, {high*100:+.1f}] pp |")
 
@@ -120,17 +139,63 @@ def analyze(path: Path) -> str:
                 per_seed_surv = {}
                 for seed in unique_seeds:
                     effects = []
-                    for swapped in [0, 1]:
-                        full = by_key.get((phase, scenario, "adaptive", 15, seed, swapped))
-                        removed = by_key.get((phase, scenario, "adaptive", 14, seed, swapped))
-                        if full is None or removed is None:
-                            raise ValueError(f"missing matched terrain ablation {scenario}/{seed}")
-                        effects.append(int(full["small_remaining"]) - int(removed["small_remaining"]))
-                    per_seed_surv[seed] = sum(effects) / 2
+                    for layout in layouts:
+                        for swapped in [0, 1]:
+                            full = by_key.get((phase, scenario, "adaptive", 15, seed, swapped, layout))
+                            removed = by_key.get((phase, scenario, "adaptive", 14, seed, swapped, layout))
+                            if full is None or removed is None:
+                                raise ValueError(f"missing matched terrain ablation {scenario}/{layout}/{seed}")
+                            effects.append(int(full["small_remaining"]) - int(removed["small_remaining"]))
+                    per_seed_surv[seed] = sum(effects) / len(effects)
                 mean, low, high = clustered_ci(per_seed_surv)
                 lines.append(f"| {scenario} | Terrain-on − terrain-off survivors "
                              f"(Adaptive) | {mean:+.1f} | [{low:+.1f}, {high:+.1f}] |")
 
+        # One pre-specified diagnostic: the old Classic geometry has little
+        # seed variation. Show results for the three genuinely seeded layouts
+        # separately so a fixed reference map cannot inflate confidence.
+        nonclassic=[name for name in layouts if name!="classic"]
+        if nonclassic and 15 in present_masks:
+            scenario="mountain_pass"
+            per_seed_nonclassic={}
+            for seed in unique_seeds:
+                values=[]
+                for layout in nonclassic:
+                    for swapped in (0,1):
+                        a=by_key.get((phase,scenario,"adaptive",15,seed,swapped,layout))
+                        b=by_key.get((phase,scenario,"direct_rush",15,seed,swapped,layout))
+                        if a is None or b is None:
+                            raise ValueError(f"unpaired mountain sample: {seed}/{layout}/{swapped}")
+                        values.append(int(a["small_win"])-int(b["small_win"]))
+                per_seed_nonclassic[seed]=sum(values)/len(values)
+            mean,low,high=clustered_ci(per_seed_nonclassic)
+            lines.extend([
+                "",
+                "## Mountain defense — varied layouts only (excluding Classic)",
+                "",
+                f"Adaptive − DirectRush actual win probability: **{mean*100:+.1f} pp** "
+                f"(seed-clustered exploratory 95% CI [{low*100:+.1f}, {high*100:+.1f}] pp).",
+                "Classic is a useful baseline, but is largely constant across seeds.",
+            ])
+        if map_shapes:
+            lines.extend(["", "## Geography audit", "",
+                "| Scenario | Layout | Distinct maps across tested seeds |",
+                "|---|---|---:|"])
+            for (scenario, layout), signatures in sorted(map_shapes.items()):
+                lines.append(f"| {scenario} | {layout} | {len(signatures)} |")
+        lines.extend(["", "## By-layout full-system win rates", "",
+            "| Scenario | Layout | Adaptive wins | DirectRush wins |",
+            "|---|---|---:|---:|"])
+        for scenario in SCENARIOS:
+            for layout in layouts:
+                data = [r for r in rows if r["scenario"] == scenario and
+                        r.get("layout", "classic") == layout and int(r["mask"]) == 15]
+                a = [r for r in data if r["policy"] == "adaptive"]
+                d = [r for r in data if r["policy"] == "direct_rush"]
+                if a and d:
+                    lines.append(f"| {scenario} | {layout} | "
+                                 f"{sum(int(r['small_win']) for r in a)}/{len(a)} | "
+                                 f"{sum(int(r['small_win']) for r in d)}/{len(d)} |")
         lines += [
             "",
             "## Decision gate",

@@ -1,4 +1,4 @@
-name: Genesis V0.4 — Tactical Ablation Laboratory
+name: Genesis V0.4.3 — Diverse Tactical Maps and Adversaries
 on:
   pull_request:
     branches: [main]
@@ -6,56 +6,44 @@ on:
       - src/frontier_combat.rs
       - src/bin/combat_lab.rs
       - src/lib.rs
-      - docs/combat_v04_protocol.md
-      - docs/combat_v042_objectives.md
-      - docs/combat_v042_screening_results.md
       - scripts/analyze_combat_v04.py
+      - docs/combat_v043_protocol.md
       - .github/workflows/combat-lab.yml
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  experiment:
+  four-layout-matched-screening:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        opponent: [standard, counter, pincer, fortress]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Deterministic invariants, ablation isolation and replay
+      - name: Physics and game invariants, reproducible map reachability
         run: cargo test --lib frontier_combat
-      - name: Complete 16-mask matched-seed screening
+      - name: Matched-seed 16-factor ablation x 4 physical layouts
         run: |
           cargo run --release --bin combat_lab -- \
-            --seeds 32 --ablation all --phase screening \
-            --output results/combat_v04_screening.csv
-          test "$(wc -l < results/combat_v04_screening.csv)" -eq 16385
-          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v04_screening.csv
-      - name: Adversarial counter-AI stress test — same matched development seeds
-        run: |
-          cargo run --release --bin combat_lab -- \
-            --seeds 32 --ablation all --opponent counter --phase screening \
-            --output results/combat_v042_counter.csv
-          test "$(wc -l < results/combat_v042_counter.csv)" -eq 16385
-          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v042_counter.csv
-      - name: Analyze counter-AI policy performance separately
+            --seeds 32 --ablation all --layout all \
+            --opponent ${{ matrix.opponent }} --phase screening \
+            --output results/combat_v043_${{ matrix.opponent }}.csv
+          test "$(wc -l < results/combat_v043_${{ matrix.opponent }}.csv)" -eq 65537
+          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v043_${{ matrix.opponent }}.csv
+      - name: Seed-clustered paired policy and geography analysis
         run: |
           python3 scripts/analyze_combat_v04.py \
-            --csv results/combat_v042_counter.csv \
-            --output results/combat_v042_counter_report.md
-          cat results/combat_v042_counter_report.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Analyze paired wins, draws and surviving troops
-        run: |
-          python3 scripts/analyze_combat_v04.py \
-            --csv results/combat_v04_screening.csv \
-            --output results/combat_v04_report.md
-          cat results/combat_v04_report.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Preserve raw experimental evidence and interpretation
+            --csv results/combat_v043_${{ matrix.opponent }}.csv \
+            --output results/combat_v043_${{ matrix.opponent }}_report.md
+          cat results/combat_v043_${{ matrix.opponent }}_report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve raw CSV and report per opponent
         uses: actions/upload-artifact@v4
         with:
-          name: genesis-v042-16-factor-physical-objectives
+          name: genesis-v043-${{ matrix.opponent }}-screening
           path: |
-            results/combat_v04_screening.csv
-            results/combat_v04_report.md
-            results/combat_v042_counter.csv
-            results/combat_v042_counter_report.md
+            results/combat_v043_${{ matrix.opponent }}.csv
+            results/combat_v043_${{ matrix.opponent }}_report.md
           retention-days: 45

@@ -9,6 +9,7 @@
 //! All 16 ablation masks reuse the SAME seeded battlefield and starting teams.
 
 use crate::frontier::{Order, Terrain};
+use std::collections::VecDeque;
 
 pub const FIELD_WIDTH: i16 = 15;
 pub const FIELD_HEIGHT: i16 = 9;
@@ -19,6 +20,27 @@ const CELLS: usize = FIELD_WIDTH as usize * FIELD_HEIGHT as usize;
 const START_RESERVE: u16 = 400;
 const START_PROVISIONS: u8 = 6;
 const PASS: (i16, i16) = (7, 4);
+
+/// Four reproducible cartographic archetypes. Physical barriers remain the
+/// same under every experimental combat-factor mask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Layout {
+    Classic, Ridge, RiverFord, SplitValley,
+}
+impl Layout {
+    pub const ALL:[Self;4]=[
+        Self::Classic,Self::Ridge,Self::RiverFord,Self::SplitValley
+    ];
+    pub fn label(self)->&'static str {
+        match self {
+            Self::Classic=>"classic",
+            Self::Ridge=>"ridge",
+            Self::RiverFord=>"river_ford",
+            Self::SplitValley=>"split_valley",
+        }
+    }
+}
+
 /// Explicitly observable mission objectives, not bonuses to a chosen AI.
 pub const MOUNTAIN_DEFEND_ROUNDS: u16 = 24;
 pub const BREAKTHROUGH_ROUNDS: u8 = 3;
@@ -116,10 +138,16 @@ impl Policy {
 /// The standard opponent is the V0.4.2 reference baseline. Counter is
 /// a tougher, responsive adversary evaluated as a separate stress test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OpponentPolicy { Standard, Counter }
+pub enum OpponentPolicy { Standard, Counter, Pincer, Fortress }
 impl OpponentPolicy {
+    pub const ALL:[Self;4]=[
+        Self::Standard,Self::Counter,Self::Pincer,Self::Fortress
+    ];
     pub fn label(self)->&'static str {
-        match self {Self::Standard=>"standard",Self::Counter=>"counter"}
+        match self {
+            Self::Standard=>"standard",Self::Counter=>"counter",
+            Self::Pincer=>"pincer",Self::Fortress=>"fortress",
+        }
     }
 }
 
@@ -168,6 +196,9 @@ pub struct TeamStats {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Battle {
     pub scenario: Scenario,
+    pub layout: Layout,
+    /// Actual objective coordinate, varied by seeded map geometry.
+    pub objective: (i16,i16),
     pub policy: Policy,
     pub opponent: OpponentPolicy,
     pub rules: CombatRules,
@@ -263,7 +294,8 @@ impl Battle {
                 order:Order::Hold,destination:pos,routing:false }
         };
         Self {
-            scenario,policy,opponent:OpponentPolicy::Standard,rules,
+            scenario,layout:Layout::Classic,objective:PASS,
+            policy,opponent:OpponentPolicy::Standard,rules,
             seed,swap,round:0,map,
             units:[
                 make_unit(0,Role::Main,(main_small,small_y),split_small),
@@ -290,6 +322,88 @@ impl Battle {
         self
     }
 
+    /// Rebuild only the experimental geography and initial positions.
+    /// This method must be used before advancing any combat rounds.
+    pub fn with_layout(mut self, layout:Layout)->Self {
+        self.layout=layout;
+        if layout==Layout::Classic {return self;}
+        let cy=2+(hash(self.seed,0x4f02+layout as u64)%5) as i16;
+        self.objective=(7,cy);
+        self.depots=if self.swap {[(13,cy),(1,cy)]} else {[(1,cy),(13,cy)]};
+        let mut map=[Terrain::Plain;CELLS];
+        for y in 0..FIELD_HEIGHT {
+            for x in 2..FIELD_WIDTH-2 {
+                let n=hash(self.seed,((x*23+y*43) as u64)+layout as u64*719);
+                if n%9==0 {map[index((x,y))]=Terrain::Forest;}
+                else if n%23==0 {map[index((x,y))]=Terrain::Mountain;}
+            }
+        }
+        match layout {
+            Layout::Classic=>unreachable!(),
+            Layout::Ridge=>{
+                // Thick traversable ridgeline with widely varying defense.
+                for y in 0..FIELD_HEIGHT {
+                    map[index((7,y))]=Terrain::Mountain;
+                    if (y-cy).abs()<=2 {
+                        map[index((6,y))]=Terrain::Forest;
+                        map[index((8,y))]=Terrain::Forest;
+                    }
+                }
+            }
+            Layout::RiverFord=>{
+                // Water barrier with two genuine crossings, including the
+                // objective's ford. The flanking ford varies with seed.
+                let second=if cy<=4 {7}else{1};
+                for y in 0..FIELD_HEIGHT {
+                    if y!=cy && y!=second {map[index((7,y))]=Terrain::Sea;}
+                    else {map[index((7,y))]=Terrain::Mountain;}
+                }
+            }
+            Layout::SplitValley=>{
+                // Double barrier, staggered east/west alternate passes.
+                let second=if cy<=4 {7}else{1};
+                for y in 0..FIELD_HEIGHT {
+                    if y!=cy && y!=second {
+                        map[index((6,y))]=Terrain::Sea;
+                    }
+                    if y!=cy && y!=(8-second) {
+                        map[index((8,y))]=Terrain::Sea;
+                    }
+                }
+                map[index((7,cy))]=Terrain::Mountain;
+            }
+        }
+        // No mission or initial army may be placed inside water.
+        map[index(self.objective)]=if self.scenario==Scenario::MountainPass {
+            Terrain::Mountain
+        } else {Terrain::Plain};
+        // Clear every possible faction-spawn square, regardless of which
+        // team occupies each side. The same physical terrain must survive
+        // the side-swap control, not depend on a unit's ownership.
+        for p in [(1,cy),(13,cy),(4,cy),(5,cy),(9,cy),(10,cy),
+                  (3,1),(11,1),(3,7),(11,7)] {
+            map[index(p)]=Terrain::Plain;
+        }
+        self.units[0].pos=if self.scenario==Scenario::MountainPass {
+            self.objective
+        } else {(if self.swap {9}else{5},cy)};
+        self.units[1].pos=(if self.swap {11}else{3},1);
+        self.units[2].pos=(if self.swap {4}else{10},cy);
+        self.units[3].pos=(if self.swap {3}else{11},7);
+        for u in &mut self.units {
+            map[index(u.pos)]=Terrain::Plain;
+            u.destination=u.pos;
+            u.order=Order::Hold;
+        }
+        if self.scenario==Scenario::MountainPass {
+            map[index(self.objective)]=Terrain::Mountain;
+        }
+        // Seed-dependent road texture and ridgeline are shared across all
+        // policies, side assignments and ablations for one map/seed pairing.
+        self.map=map;
+        self
+    }
+
     pub fn terrain_at(&self,p:(i16,i16))->Terrain {
         self.map[index(clamp_pos(p))]
     }
@@ -305,12 +419,14 @@ impl Battle {
     }
 
     fn breakthrough_target(&self)->(i16,i16) {
-        if self.swap {(10,4)} else {(4,4)}
+        if self.swap {(10,self.objective.1)} else {(4,self.objective.1)}
     }
 
     fn corridor_target(&self)->(i16,i16) {
         let depot=self.depots[1];
-        if depot.0>PASS.0 {(10,4)} else {(4,4)}
+        if depot.0>self.objective.0 {
+            (10,self.objective.1)
+        } else {(4,self.objective.1)}
     }
 
     pub fn supplies_balanced(&self,team:usize)->bool {
@@ -338,19 +454,61 @@ impl Battle {
             } else {
                 enemy.pos.0<=depot.0 && enemy.pos.0>u.pos.0
             };
-            if behind && (enemy.pos.1-4).abs()<=1 {
+            if behind && (enemy.pos.1-self.objective.1).abs()<=1 {
                 return false;
             }
         }
         true
     }
 
-    fn move_one(pos:(i16,i16),target:(i16,i16))->(i16,i16) {
-        if pos.1!=target.1 {
-            (pos.0,pos.1+if target.1>pos.1 {1}else{-1})
-        } else if pos.0!=target.0 {
-            (pos.0+if target.0>pos.0 {1}else{-1},pos.1)
-        } else {pos}
+    /// Breadth-first movement through the actual grid. Opposing armies and
+    /// sea are impassable; if an enemy holds the target, route to the closest
+    /// accessible adjacent square. Geographic combat modifiers may be
+    /// ablated without making sea traversable.
+    fn route_step(
+        map:&[Terrain;CELLS], occupancy:&[Unit;4],
+        from:(i16,i16), target:(i16,i16), side:u8
+    )->Option<(i16,i16)> {
+        if from==target {return None;}
+        let mut parents=[usize::MAX;CELLS];
+        let mut length=[u16::MAX;CELLS];
+        let mut queue=VecDeque::new();
+        let start=index(from);
+        parents[start]=start;length[start]=0;
+        queue.push_back(from);
+        let mut best=start;
+        let mut closest=distance(from,target);
+        let offsets=[(1,0),(0,-1),(-1,0),(0,1)];
+        while let Some((x,y))=queue.pop_front() {
+            let current=index((x,y));
+            let d=distance((x,y),target);
+            if d<closest || (d==closest && length[current]<length[best]) {
+                closest=d;best=current;
+            }
+            if (x,y)==target {break;}
+            for (dx,dy) in offsets {
+                let pos=(x+dx,y+dy);
+                if pos.0<0 || pos.0>=FIELD_WIDTH ||
+                    pos.1<0 || pos.1>=FIELD_HEIGHT {continue;}
+                let idx=index(pos);
+                if parents[idx]!=usize::MAX || map[idx]==Terrain::Sea {
+                    continue;
+                }
+                if occupancy.iter().any(|enemy|enemy.side!=side &&
+                    enemy.troops>0 && enemy.pos==pos) {continue;}
+                parents[idx]=current;
+                length[idx]=length[current]+1;
+                queue.push_back(pos);
+            }
+        }
+        if best==start {return None;}
+        let mut cursor=best;
+        while parents[cursor]!=start {
+            cursor=parents[cursor];
+            if cursor==usize::MAX {return None;}
+        }
+        Some(((cursor%FIELD_WIDTH as usize) as i16,
+            (cursor/FIELD_WIDTH as usize) as i16))
     }
 
     fn assign(&mut self,idx:usize,order:Order,destination:(i16,i16)) {
@@ -407,10 +565,10 @@ impl Battle {
                 self.assign(1,Order::Attack,big_scout.pos);
             }
             Policy::PassDefense => {
-                if small_main.pos==PASS {
-                    self.assign(0,Order::Hold,PASS);
+                if small_main.pos==self.objective {
+                    self.assign(0,Order::Hold,self.objective);
                 } else {
-                    self.assign(0,Order::Attack,PASS);
+                    self.assign(0,Order::Attack,self.objective);
                 }
                 // Defense-in-depth: protect the *actual* breakthrough tile.
                 // A rear guard two tiles away cannot contest occupation.
@@ -427,10 +585,10 @@ impl Battle {
                 }
             }
             Policy::SupplyRaid => {
-                if small_main.pos==PASS {
-                    self.assign(0,Order::Hold,PASS);
+                if small_main.pos==self.objective {
+                    self.assign(0,Order::Hold,self.objective);
                 } else {
-                    self.assign(0,Order::Attack,PASS);
+                    self.assign(0,Order::Attack,self.objective);
                 }
                 let (order,target)=self.scout_raid_destination(1);
                 self.assign(1,order,target);
@@ -443,7 +601,7 @@ impl Battle {
             if small_main.state.morale<42 || small_main.state.fatigue>88 {
                 self.assign(0,Order::Retreat,small_depot);
             } else if self.scenario==Scenario::SupplyCorridor &&
-                small_main.pos!=PASS && !self.physical_interdiction(0) &&
+                small_main.pos!=self.objective && !self.physical_interdiction(0) &&
                 (big_main.state.provisions==0 || big_main.troops<small_main.troops/2) {
                 // Never abandon a held road interdiction merely because
                 // the isolated enemy is running low on provisions.
@@ -451,58 +609,80 @@ impl Battle {
             }
         }
 
-        // Both adversaries obey identical mechanics. Counter observes the
-        // public objective and reacts faster; it gets no hidden modifiers.
+        // Four independent, deterministic enemy command policies. None
+        // sees future state, rule toggles or inaccessible resource bonuses.
         let counter=self.opponent==OpponentPolicy::Counter;
-        let flank_after=if counter {2} else {8};
+        let pincer=self.opponent==OpponentPolicy::Pincer;
+        let fortress=self.opponent==OpponentPolicy::Fortress;
+        let flank_after=if pincer {1} else if counter {2}
+            else if fortress {6} else {8};
         let beyond_pass=if self.swap {big_main.pos.0>=8}
             else {big_main.pos.0<=6};
         if self.scenario==Scenario::MountainPass && beyond_pass {
-            // Once beyond the defenders, stop chasing them from behind.
-            // Reaching the objective is more important than endless contact.
             self.assign(2,Order::Attack,self.breakthrough_target());
         } else if self.scenario==Scenario::MountainPass &&
             self.pass_hold_rounds>=flank_after &&
             ((self.swap && big_main.pos.0<=7) ||
              (!self.swap && big_main.pos.0>=7)) {
-            // Counter tries the southern flank, Standard the northern one.
-            let flank=match (self.swap,counter) {
-                (false,false)=>(5,1),(true,false)=>(9,1),
-                (false,true)=>(5,7),(true,true)=>(9,7),
-            };
+            let lane=if counter || pincer {7} else {1};
+            let flank=if self.swap {(9,lane)} else {(5,lane)};
             self.assign(2,Order::Attack,flank);
         } else if distance(big_main.pos,small_main.pos)<=1 && small_main.troops>0 {
             self.assign(2,Order::Attack,small_main.pos);
         } else if self.scenario==Scenario::MountainPass {
             self.assign(2,Order::Attack,self.breakthrough_target());
         } else if self.scenario==Scenario::SupplyCorridor {
-            // Physical response to road interdiction, not an omniscient
-            // change to the defender's damage, food or morale.
             let raider=self.units[1];
-            let response_range=if counter {4} else {1};
+            let response_range=if fortress {7} else if counter {4} else {1};
             if raider.troops>0 &&
                 distance(raider.pos,self.corridor_target())<=response_range {
                 self.assign(2,Order::Attack,raider.pos);
+            } else if pincer {
+                self.assign(2,Order::Attack,self.objective);
             } else {
                 self.assign(2,Order::Attack,small_main.pos);
             }
-        } else if counter {
-            self.assign(2,Order::Attack,PASS);
+        } else if counter || pincer || fortress {
+            // Contest the actual seeded center rather than a fixed tile.
+            if fortress && big_main.pos==self.objective {
+                self.assign(2,Order::Hold,self.objective);
+            } else {
+                self.assign(2,Order::Attack,self.objective);
+            }
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
-        let guard_radius=if counter {7} else {3};
+        let guard_radius=if fortress {8} else if counter {7} else {3};
         let intruder=[small_main,small_scout].into_iter()
             .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=guard_radius)
             .min_by_key(|u|distance(u.pos,big_depot));
-        if self.scenario==Scenario::MountainPass && counter &&
+        if pincer && self.scenario==Scenario::MountainPass &&
+            self.pass_hold_rounds>0 {
+            // Second army tries a different approach: either a real
+            // breakthrough from the north or a force-on-force clash.
+            let lane=1;
+            let target=if self.swap {(10,lane)} else {(4,lane)};
+            self.assign(3,Order::Attack,target);
+        } else if pincer && self.scenario==Scenario::SupplyCorridor {
+            self.assign(3,Order::Attack,small_depot);
+        } else if pincer &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            self.assign(3,Order::Attack,self.objective);
+        } else if self.scenario==Scenario::MountainPass && counter &&
             self.pass_hold_rounds>=2 && small_scout.troops>0 {
             self.assign(3,Order::Attack,small_scout.pos);
+        } else if fortress &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            if big_scout.pos==self.objective {
+                self.assign(3,Order::Hold,self.objective);
+            } else {
+                self.assign(3,Order::Attack,self.objective);
+            }
         } else if let Some(u)=intruder {
             self.assign(3,Order::Attack,u.pos);
         } else if counter &&
             matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
-            self.assign(3,Order::Attack,PASS);
+            self.assign(3,Order::Attack,self.objective);
         } else if distance(big_scout.pos,big_depot)>1 {
             self.assign(3,Order::Move,big_depot);
         } else {
@@ -512,10 +692,14 @@ impl Battle {
 
     fn movement(&mut self)->[bool;4] {
         let mut moved=[false;4];
-        // Use pre-movement occupancy, not loop order. Two opposing armies
-        // cannot phase through one another in the same tactical round.
+        // All units read the same pre-movement occupancy. We also track
+        // destinations claimed earlier this round to avoid endpoint stacking
+        // and move-update advantages (there are only four units).
         let before=self.units;
-        for (i,u) in self.units.iter_mut().enumerate() {
+        let map=self.map;
+        let mut claimed:Vec<(i16,i16)>=Vec::new();
+        for i in 0..4 {
+            let u=&mut self.units[i];
             if u.troops==0 {continue;}
             if u.order==Order::Hold {
                 u.state.entrenchment=u.state.entrenchment.saturating_add(1).min(3);
@@ -523,16 +707,16 @@ impl Battle {
                 u.state.entrenchment=0;
                 let steps=if u.order==Order::Retreat {2} else {1};
                 for _ in 0..steps {
-                    let next=Self::move_one(u.pos,u.destination);
-                    if next==u.pos {break;}
-                    if before.iter().any(|enemy|enemy.side!=u.side
-                        && enemy.troops>0 && enemy.pos==next) {
-                        break; // enemy line blocks entry; combat is adjacent
-                    }
-                    u.pos=clamp_pos(next);
+                    let next=Self::route_step(&map,&before,u.pos,u.destination,u.side);
+                    let Some(next)=next else {break;};
+                    if claimed.contains(&next) {break;}
+                    if before.iter().any(|enemy|enemy.side!=u.side &&
+                        enemy.troops>0 && enemy.pos==next) {break;}
+                    u.pos=next;
                     moved[i]=true;
                 }
             }
+            claimed.push(u.pos);
             if self.rules.fatigue {
                 u.state.fatigue=if moved[i] {
                     u.state.fatigue.saturating_add(4).min(100)
@@ -710,7 +894,7 @@ impl Battle {
         if enemy.troops==0 {return false;}
         let depot=self.depots[defender];
         self.units.iter().any(|u|u.side as usize==side &&
-            u.troops>=15 && (u.pos.1-4).abs()<=1 &&
+            u.troops>=15 && (u.pos.1-self.objective.1).abs()<=1 &&
             (if depot.0<enemy.pos.0 {
                 u.pos.0>depot.0 && u.pos.0<enemy.pos.0
             } else {
@@ -743,7 +927,7 @@ impl Battle {
         }
         let at_pass:[bool;2]=std::array::from_fn(|side|
             self.units.iter().any(|u|u.side as usize==side &&
-                u.troops>0 && distance(u.pos,PASS)<=1));
+                u.troops>0 && distance(u.pos,self.objective)<=1));
         self.objective_owner=match at_pass {
             [true,false]=>Some(0),[false,true]=>Some(1),_=>None,
         };
@@ -760,9 +944,9 @@ impl Battle {
                 // Team 0 explicitly defends the pass for a fixed siege period.
                 // Team 1 tries to cross and occupy a real tile beyond it.
                 let defending=self.units.iter().any(|u|u.side==0 &&
-                    u.troops>=40 && u.pos==PASS && u.order==Order::Hold);
+                    u.troops>=40 && u.pos==self.objective && u.order==Order::Hold);
                 let occupying_pass=self.units.iter().any(|u|u.side==1 &&
-                    u.troops>0 && u.pos==PASS);
+                    u.troops>0 && u.pos==self.objective);
                 if defending && !occupying_pass {
                     self.pass_hold_rounds=self.pass_hold_rounds.saturating_add(1);
                 } else {self.pass_hold_rounds=0;}
@@ -886,6 +1070,7 @@ impl Battle {
             if !self.supplies_balanced(side) {return false;}
         }
         self.units.iter().all(|u|u.pos==clamp_pos(u.pos)
+            && (u.troops==0 || self.map[index(u.pos)]!=Terrain::Sea)
             && u.state.morale<=100 && u.state.fatigue<=100
             && u.state.provisions<=START_PROVISIONS
             && u.state.entrenchment<=3)
@@ -1150,8 +1335,11 @@ mod tests {
         battle.units[2].destination=(7,4);
         battle.units[2].order=Order::Attack;
         battle.movement();
-        assert_eq!(battle.units[0].pos,(7,4));
-        assert_eq!(battle.units[2].pos,(8,4));
+        // Pathfinding is allowed to flank around an occupied square.
+        // The invariant is NO enemy phasing, not mandatory standing still.
+        assert_ne!(battle.units[0].pos,(8,4));
+        assert_ne!(battle.units[2].pos,(7,4));
+        assert_ne!(battle.units[0].pos,battle.units[2].pos);
     }
 
     #[test]
@@ -1212,6 +1400,95 @@ mod tests {
             (500,500));
         assert_eq!((unequal.initial_troops(0),unequal.initial_troops(1)),
             (400,650));
+    }
+
+    #[test]
+    fn all_seeded_geographies_are_navigable_and_mask_invariant() {
+        let mut distinct=std::collections::HashSet::new();
+        for scenario in Scenario::ALL {
+            for layout in Layout::ALL {
+                for seed in [1000,1001,1013,1028] {
+                    for swap in [false,true] {
+                        let base=Battle::new(seed,scenario,Policy::Adaptive,swap,
+                            CombatRules::FULL).with_layout(layout);
+                        let no_rules=Battle::new(seed,scenario,Policy::DirectRush,
+                            swap,CombatRules::from_mask(0)).with_layout(layout);
+                        assert_eq!(base.map,no_rules.map,
+                            "map must not change when a combat rule is ablated");
+                        let mirrored=Battle::new(seed,scenario,Policy::Adaptive,
+                            !swap,CombatRules::FULL).with_layout(layout);
+                        assert_eq!(base.map,mirrored.map,
+                            "side assignment must not regenerate geography");
+                        assert_eq!(base.objective,no_rules.objective);
+                        assert_eq!(base.units,no_rules.units);
+                        assert_ne!(base.terrain_at(base.objective),Terrain::Sea);
+                        for u in &base.units {
+                            assert_ne!(base.terrain_at(u.pos),Terrain::Sea);
+                        }
+                        for depot in base.depots {
+                            let mut empty=base.units;
+                            for u in &mut empty {u.troops=0;}
+                            let mut pos=depot;
+                            for _ in 0..CELLS {
+                                if pos==base.objective {break;}
+                                let next=Battle::route_step(&base.map,&empty,
+                                    pos,base.objective,0)
+                                    .expect("objective must be reachable");
+                                assert_ne!(base.terrain_at(next),Terrain::Sea);
+                                pos=next;
+                            }
+                            assert_eq!(pos,base.objective,
+                                "cannot trap the starting army across water");
+                        }
+                        if scenario==Scenario::MountainPass {
+                            distinct.insert((
+                                layout.label(),
+                                base.map.iter().map(|t|*t as u8).collect::<Vec<_>>(),
+                                base.objective,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(distinct.len()>12,
+            "four named layouts must create genuinely distinct geography");
+    }
+
+    #[test]
+    fn river_and_valley_water_stays_impassable_when_terrain_effects_off() {
+        for layout in [Layout::RiverFord,Layout::SplitValley] {
+            let mut battle=Battle::new(1001,Scenario::MountainPass,
+                Policy::DirectRush,false,CombatRules::from_mask(0))
+                .with_layout(layout);
+            for _ in 0..MAX_ROUNDS {
+                battle.step();
+                assert!(battle.audit());
+                for u in &battle.units {
+                    if u.troops>0 {
+                        assert_ne!(battle.map[index(u.pos)],Terrain::Sea);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn all_opponent_families_get_identical_initial_worlds() {
+        for layout in Layout::ALL {
+            for scenario in Scenario::ALL {
+                let baseline=Battle::new(1011,scenario,Policy::Adaptive,
+                    false,CombatRules::FULL).with_layout(layout);
+                for adversary in OpponentPolicy::ALL {
+                    let mut run=baseline.clone().with_opponent(adversary);
+                    assert_eq!(run.map,baseline.map);
+                    assert_eq!(run.units,baseline.units);
+                    assert_eq!(run.depots,baseline.depots);
+                    for _ in 0..MAX_ROUNDS {run.step();}
+                    assert!(run.audit());
+                }
+            }
+        }
     }
 
     #[test]

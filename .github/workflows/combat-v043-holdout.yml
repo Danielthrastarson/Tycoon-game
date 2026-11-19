@@ -1,0 +1,74 @@
+name: Genesis V0.4.3 — Frozen 256-Seed Holdout
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - docs/combat_v043_freeze.md
+permissions:
+  contents: read
+jobs:
+  heldout-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        opponent: [standard, counter, pincer, fortress]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fail closed unless source and statistical scripts are frozen
+        run: |
+          test "$(git rev-parse HEAD:src/frontier_combat.rs)" = "d734e86c7bef8e12987ac5245b1cd5ceaa357114"
+          test "$(git rev-parse HEAD:src/bin/combat_lab.rs)" = "0d08bbcc6974553a1ea5e4a51a1ccfb272c130dd"
+          test "$(git rev-parse HEAD:scripts/analyze_combat_v04.py)" = "fe184225a6e755c19b240aa002cf1512a2a1cea6"
+          test "$(git rev-parse HEAD:scripts/evaluate_v043_holdout.py)" = "c82bcbf1217cbd1c807de510e87593bda719b703"
+          test "$(git rev-parse HEAD:docs/combat_v043_protocol.md)" = "eb5f6fd73450644c60579f6093b8a6fa1ddd7017"
+          python3 -m py_compile scripts/analyze_combat_v04.py scripts/evaluate_v043_holdout.py
+      - name: Exact one-time holdout seeds 900000–900255, predeclared six masks
+        run: |
+          cargo run --release --bin combat_lab -- \
+            --phase holdout --seeds 256 --ablation core --layout all \
+            --opponent ${{ matrix.opponent }} \
+            --output results/combat_v043_holdout_${{ matrix.opponent }}.csv
+          test "$(wc -l < results/combat_v043_holdout_${{ matrix.opponent }}.csv)" -eq 196609
+          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v043_holdout_${{ matrix.opponent }}.csv
+      - name: Audit paired results and layouts with no rule changes
+        run: |
+          python3 scripts/analyze_combat_v04.py \
+            --csv results/combat_v043_holdout_${{ matrix.opponent }}.csv \
+            --output results/combat_v043_holdout_${{ matrix.opponent }}_analysis.md
+      - name: Preserve exact frozen opponent cohort
+        uses: actions/upload-artifact@v4
+        with:
+          name: genesis-v043-holdout-${{ matrix.opponent }}
+          path: |
+            results/combat_v043_holdout_${{ matrix.opponent }}.csv
+            results/combat_v043_holdout_${{ matrix.opponent }}_analysis.md
+          retention-days: 60
+  primary-result:
+    needs: [heldout-evaluation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: genesis-v043-holdout-*
+          merge-multiple: true
+          path: results
+      - name: One predeclared primary comparison, secondary results separate
+        run: |
+          python3 scripts/evaluate_v043_holdout.py \
+            --standard results/combat_v043_holdout_standard.csv \
+            --counter results/combat_v043_holdout_counter.csv \
+            --pincer results/combat_v043_holdout_pincer.csv \
+            --fortress results/combat_v043_holdout_fortress.csv \
+            --output results/combat_v043_holdout_locked_report.md
+          cat results/combat_v043_holdout_locked_report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Archive holdout decision
+        uses: actions/upload-artifact@v4
+        with:
+          name: genesis-v043-locked-holdout-report
+          path: results/combat_v043_holdout_locked_report.md
+          retention-days: 90
