@@ -126,9 +126,18 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
             let left=center.x-cell*0.5;
             let top=center.y-cell*0.5;
             let rough=((x as i32*19+y as i32*11+b.seed as i32)%9) as f32;
-            draw_rectangle(left,top,cell+0.7,cell+0.7,
-                tint(terrain_color(t),0.93+rough*0.012));
-            if cell>=16. {
+            // Clip partially visible terrain cells to the map viewport.
+            let rx=left.max(area.x);
+            let ry=top.max(area.y);
+            let rw=(left+cell+0.7).min(area.x+area.w)-rx;
+            let rh=(top+cell+0.7).min(area.y+area.h)-ry;
+            if rw>0. && rh>0. {
+                draw_rectangle(rx,ry,rw,rh,
+                    tint(terrain_color(t),0.93+rough*0.012));
+            }
+            let fully_visible=left>=area.x && top>=area.y &&
+                left+cell<=area.x+area.w && top+cell<=area.y+area.h;
+            if cell>=16. && fully_visible {
                 match t {
                     Terrain::Mountain=>{
                         let d=cell*0.30;
@@ -154,8 +163,10 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
                     _=>{}
                 }
             }
-            draw_rectangle_lines(left,top,cell+0.5,cell+0.5,0.38,
-                Color::new(0.80,0.93,0.83,0.085));
+            if fully_visible {
+                draw_rectangle_lines(left,top,cell+0.5,cell+0.5,0.38,
+                    Color::new(0.80,0.93,0.83,0.085));
+            }
         }
     }
     // This soft boundary only clips overlay objects; terrain tiles are
@@ -278,6 +289,38 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
     }
     draw_rectangle_lines(area.x,area.y,area.w,area.h,1.5,rgba(93,123,141));
 }
+/// The full map remains visible even on tall portrait screens. Tapping
+/// this miniature recenters the authoritative world camera.
+fn minimap_rect(area:Rect)->Rect {
+    let width=(area.w*0.32).clamp(110.0,155.0).min(area.w-12.0);
+    let height=width*FIELD_HEIGHT as f32/FIELD_WIDTH as f32;
+    Rect::new(area.x+area.w-width-9.0,area.y+9.0,width,height)
+}
+fn draw_minimap(b:&Battle,area:Rect,view:Rect) {
+    let m=minimap_rect(area);
+    draw_rectangle(m.x-5.0,m.y-5.0,m.w+10.0,m.h+24.0,
+        Color::new(0.055,0.09,0.13,0.95));
+    text("OVERVIEW / TAP TO PAN",m.x,m.y-9.0,9.0,rgba(174,202,212));
+    let cw=m.w/FIELD_WIDTH as f32;
+    let ch=m.h/FIELD_HEIGHT as f32;
+    for y in 0..FIELD_HEIGHT {
+        for x in 0..FIELD_WIDTH {
+            draw_rectangle(m.x+x as f32*cw,m.y+y as f32*ch,
+                cw+0.15,ch+0.15,terrain_color(b.terrain_at((x,y))));
+        }
+    }
+    for u in &b.units {
+        if u.troops==0 {continue;}
+        let cx=m.x+(u.pos.0 as f32+0.5)*cw;
+        let cy=m.y+(u.pos.1 as f32+0.5)*ch;
+        draw_circle(cx,cy,2.9,if u.side==0 {CYAN}else{ORANGE});
+    }
+    draw_rectangle_lines(
+        m.x+view.x*cw,m.y+view.y*ch,
+        view.w*cw,view.h*ch,1.4,WHITE);
+    draw_rectangle_lines(m.x,m.y,m.w,m.h,1.0,rgba(124,151,164));
+}
+
 fn reset(seed:u64,layout:Layout)->Battle {
     Battle::new(seed,Scenario::MountainPass,Policy::Adaptive,false,
         CombatRules::FULL)
@@ -472,6 +515,13 @@ async fn main() {
                         4=>zoom_on(&mut camera,&mut zoom,0.8,area.center(),area),
                         _=>{}
                     }
+                } else if minimap_rect(area).contains(p) {
+                    let mini=minimap_rect(area);
+                    camera=vec2(
+                        (p.x-mini.x)/mini.w*FIELD_WIDTH as f32,
+                        (p.y-mini.y)/mini.h*FIELD_HEIGHT as f32);
+                    clamp_camera(&mut camera,zoom,area);
+                    message="Camera moved. Tap a squad or give an order.".into();
                 } else if area.contains(p) {
                     gesture=Some(Gesture{origin:p,last:p,dragging:false});
                 }
@@ -553,7 +603,8 @@ async fn main() {
             interpolated(previous_positions[i],battle.units[i].pos,alpha));
         clear_background(BG);
         draw_rectangle(0.,0.,sw,96.,rgba(15,29,42));
-        text("GENESIS  /  TACTICAL SIEGE",13.,27.,18.,WHITE);
+        text(if wide {"GENESIS / TACTICAL SIEGE"}
+            else {"GENESIS / SIEGE"},13.,27.,18.,WHITE);
         text(&format!("ROUND {:02}/{:02}     {}",
             battle.round,MAX_ROUNDS,if battle.ended {"FINISHED"}else if running {"LIVE"}else{"PAUSED"}),
             13.,50.,13.,if running {GREEN}else{MUTED});
@@ -567,6 +618,7 @@ async fn main() {
         draw_rectangle(13.,83.,(sw-26.)*progress,5.,GREEN);
         let view=world_view(camera,zoom,area);
         map_render(&battle,area,view,visual_positions,chosen,None,mode,&floaters);
+        draw_minimap(&battle,area,view);
 
         let control_x=if wide {area.x+area.w+12.}else{10.};
         let info_y=if wide {112.}else{area.y+area.h+10.};
