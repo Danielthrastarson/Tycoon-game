@@ -27,9 +27,17 @@ jobs:
             --output results/combat_v04_screening.csv
           test "$(wc -l < results/combat_v04_screening.csv)" -eq 12289
           awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v04_screening.csv
-      - name: Preserve raw experimental evidence
+      - name: Analyze paired wins, draws and surviving troops
+        run: |
+          python3 scripts/analyze_combat_v04.py \
+            --csv results/combat_v04_screening.csv \
+            --output results/combat_v04_report.md
+          cat results/combat_v04_report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve raw experimental evidence and interpretation
         uses: actions/upload-artifact@v4
         with:
           name: genesis-v04-16-factor-screening
-          path: results/combat_v04_screening.csv
+          path: |
+            results/combat_v04_screening.csv
+            results/combat_v04_report.md
           retention-days: 45
