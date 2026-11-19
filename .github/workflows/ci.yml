@@ -19,7 +19,7 @@ jobs:
       - name: Audit original voxel universe
         run: cargo run --release --bin lab -- 200
       - name: Run agent-world experiment
-        run: cargo run --release --bin society_lab -- 180 2
+        run: cargo run --release --bin society_lab -- 1500 4
       - name: Compile all three browser games
         run: |
           cargo build --release --bin society --target wasm32-unknown-unknown
