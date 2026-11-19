@@ -29,6 +29,19 @@ jobs:
             --output results/combat_v04_screening.csv
           test "$(wc -l < results/combat_v04_screening.csv)" -eq 16385
           awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v04_screening.csv
+      - name: Adversarial counter-AI stress test — same matched development seeds
+        run: |
+          cargo run --release --bin combat_lab -- \
+            --seeds 32 --ablation all --opponent counter --phase screening \
+            --output results/combat_v042_counter.csv
+          test "$(wc -l < results/combat_v042_counter.csv)" -eq 16385
+          awk -F, 'NR>1 && $37 != 1 {exit 1}' results/combat_v042_counter.csv
+      - name: Analyze counter-AI policy performance separately
+        run: |
+          python3 scripts/analyze_combat_v04.py \
+            --csv results/combat_v042_counter.csv \
+            --output results/combat_v042_counter_report.md
+          cat results/combat_v042_counter_report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Analyze paired wins, draws and surviving troops
         run: |
           python3 scripts/analyze_combat_v04.py \
@@ -42,4 +55,6 @@ jobs:
           path: |
             results/combat_v04_screening.csv
             results/combat_v04_report.md
+            results/combat_v042_counter.csv
+            results/combat_v042_counter_report.md
           retention-days: 45
