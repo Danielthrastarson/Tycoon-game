@@ -971,7 +971,125 @@ mod tests {
         a.resolve_objectives();
         assert!(!a.depot_lost[1]);
         a.resolve_objectives();
+        assert!(!a.depot_lost[1]);
+        a.resolve_objectives();
         assert!(a.depot_lost[1]);
+        assert_eq!(a.winner,Some(0));
+        assert_eq!(a.victory_reason,Some(VictoryReason::DepotCapture));
+    }
+
+    #[test]
+    fn mountain_victory_requires_actual_held_pass_for_full_duration() {
+        let mut battle=Battle::new(12,Scenario::MountainPass,
+            Policy::PassDefense,false,CombatRules::FULL);
+        assert_eq!(battle.units[0].pos,PASS);
+        for _ in 0..(MOUNTAIN_DEFEND_ROUNDS-1) {
+            battle.resolve_objectives();
+            assert!(battle.winner.is_none());
+        }
+        // The attacker physically occupies the tile, so the streak resets.
+        battle.units[2].pos=PASS;
+        battle.resolve_objectives();
+        assert_eq!(battle.pass_hold_rounds,0);
+        assert!(battle.winner.is_none());
+        battle.units[2].pos=(10,4);
+        for _ in 0..MOUNTAIN_DEFEND_ROUNDS {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.winner,Some(0));
+        assert_eq!(battle.victory_reason,Some(VictoryReason::PassHeld));
+    }
+
+    #[test]
+    fn breakthrough_requires_uncontested_occupation_beyond_pass() {
+        for swap in [false,true] {
+            let mut battle=Battle::new(41,Scenario::MountainPass,
+                Policy::DirectRush,swap,CombatRules::FULL);
+            let goal=battle.breakthrough_target();
+            battle.units[2].pos=goal;
+            battle.units[2].order=Order::Attack;
+            // Explicit defender at the goal blocks the breakthrough.
+            battle.units[0].pos=goal;
+            battle.resolve_objectives();
+            assert_eq!(battle.breakthrough_rounds,0);
+            battle.units[0].pos=battle.depots[0];
+            for _ in 0..(BREAKTHROUGH_ROUNDS-1) {
+                battle.resolve_objectives();
+                assert!(battle.winner.is_none());
+            }
+            battle.resolve_objectives();
+            assert_eq!(battle.winner,Some(1));
+            assert_eq!(battle.victory_reason,Some(VictoryReason::Breakthrough));
+        }
+    }
+
+    #[test]
+    fn road_denial_requires_living_unit_behind_enemy_for_five_rounds() {
+        for mask in [0,15] {
+            let mut battle=Battle::new(21,Scenario::SupplyCorridor,
+                Policy::SupplyRaid,false,CombatRules::from_mask(mask));
+            // Merely commanding ATTACK cannot disrupt logistics.
+            battle.units[1].order=Order::Attack;
+            battle.resolve_objectives();
+            assert_eq!(battle.interdiction_rounds[0],0);
+            battle.units[1].pos=battle.corridor_target();
+            assert!(!battle.connected(2));
+            for _ in 0..(INTERDICTION_ROUNDS-1) {
+                battle.resolve_objectives();
+                assert!(battle.winner.is_none());
+            }
+            battle.resolve_objectives();
+            assert_eq!(battle.winner,Some(0));
+            assert_eq!(battle.victory_reason,
+                Some(VictoryReason::SupplyInterdicted));
+        }
+    }
+
+    #[test]
+    fn center_control_requires_exclusive_physical_presence() {
+        for scenario in [Scenario::OpenField,Scenario::OutnumberedField] {
+            let mut battle=Battle::new(56,scenario,
+                Policy::Adaptive,false,CombatRules::FULL);
+            battle.units[0].pos=PASS;
+            battle.units[2].pos=PASS; // contested
+            battle.resolve_objectives();
+            assert_eq!(battle.center_hold_rounds,[0,0]);
+            battle.units[2].pos=(10,4);
+            battle.units[3].pos=(11,3);
+            for _ in 0..OPEN_CONTROL_ROUNDS {
+                battle.resolve_objectives();
+            }
+            assert_eq!(battle.winner,Some(0));
+            assert_eq!(battle.victory_reason,
+                Some(VictoryReason::CenterSecured));
+        }
+    }
+
+    #[test]
+    fn a_front_line_blocks_enemy_phasing_even_during_simultaneous_movement() {
+        let mut battle=Battle::new(86,Scenario::OpenField,
+            Policy::DirectRush,false,CombatRules::FULL);
+        battle.units[0].pos=(7,4);
+        battle.units[0].destination=(9,4);
+        battle.units[0].order=Order::Attack;
+        battle.units[2].pos=(8,4);
+        battle.units[2].destination=(7,4);
+        battle.units[2].order=Order::Attack;
+        battle.movement();
+        assert_eq!(battle.units[0].pos,(7,4));
+        assert_eq!(battle.units[2].pos,(8,4));
+    }
+
+    #[test]
+    fn numerical_control_is_distinct_from_equal_force_control() {
+        let equal=Battle::new(77,Scenario::OpenField,
+            Policy::Adaptive,false,CombatRules::FULL);
+        let unequal=Battle::new(77,Scenario::OutnumberedField,
+            Policy::Adaptive,false,CombatRules::FULL);
+        assert_eq!((equal.initial_troops(0),equal.initial_troops(1)),
+            (500,500));
+        assert_eq!((unequal.initial_troops(0),unequal.initial_troops(1)),
+            (400,650));
     }
 
     #[test]
