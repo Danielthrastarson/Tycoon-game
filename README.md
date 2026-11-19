@@ -41,7 +41,7 @@ cargo run --release --bin combat_lab -- --seeds 32 --ablation all \
   --output results/combat_v04_screening.csv
 ```
 
-See [V0.4 experimental protocol](docs/combat_v04_protocol.md) for the
+See [the V0.4 screening findings](docs/combat_v04_screening_results.md) for the actual negative pilot results and the separate interpretation of wins, draws and troop preservation.\n\nSee [V0.4 experimental protocol](docs/combat_v04_protocol.md) for the
 pre-registered metrics, holdout design, limitations and promotion gate.
 The experiment must demonstrate actual strategic differences before any combat
 coefficients are integrated into the live Frontier game.
