@@ -63,9 +63,10 @@ for(const s of cases) {
    const ix=(im.width*Math.floor(p.y)+Math.floor(p.x))*4;
    return [...im.data.subarray(ix,ix+3)];
  };
- const initialButton=await sample(btn(0));
+ const buttonBackground=()=>sample({x:railx+18,y:controlsy+8});
+ const initialButton=await buttonBackground();
  await tap(btn(0)); // PAUSE
- const pausedButton=await sample(btn(0));
+ const pausedButton=await buttonBackground();
  if(initialButton[1]===pausedButton[1] && initialButton[2]===pausedButton[2])
    throw Error(s.name+': PLAY button did not switch its visual state');
  await tap(btn(0)); // resume
@@ -82,14 +83,70 @@ for(const s of cases) {
  await tap(btn(6)); // retreat
  await tap(btn(7)); // zoom in
  await tap(btn(8)); // zoom out
+
+ // Interactive panning regression: first pause, then zoom into the world.
+ // Dragging must visibly move the camera without issuing an army order or
+ // changing the PAUSE/PLAY button to running.
+ await tap(btn(0));
+ await tap(btn(7));
+ await tap(btn(7));
+ await page.waitForTimeout(420);
+ const viewBefore=PNG.sync.read(await page.screenshot({scale:'css'}));
+ const pausedBefore=await buttonBackground();
+ const from=map(49,29),to=map(32,29);
+ const drag=async()=>{
+   if(s.mobile) {
+     const cdp=await ctx.newCDPSession(page);
+     const point=(x,y)=>[{x,y,id:77,radiusX:3,radiusY:3}];
+     await cdp.send('Input.dispatchTouchEvent',{
+       type:'touchStart',touchPoints:point(from.x,from.y)
+     });
+     for(let step=1;step<=9;step++){
+       const alpha=step/9;
+       await cdp.send('Input.dispatchTouchEvent',{
+         type:'touchMove',touchPoints:point(
+           from.x+(to.x-from.x)*alpha,from.y+(to.y-from.y)*alpha)
+       });
+       await page.waitForTimeout(20);
+     }
+     await cdp.send('Input.dispatchTouchEvent',{
+       type:'touchEnd',touchPoints:[]
+     });
+     await cdp.detach();
+   } else {
+     await page.mouse.move(from.x,from.y);
+     await page.mouse.down();
+     await page.mouse.move(to.x,to.y,{steps:12});
+     await page.mouse.up();
+   }
+ };
+ await drag();
+ await page.waitForTimeout(450);
+ const viewAfter=PNG.sync.read(await page.screenshot({
+   path:path.join(output,s.name+'-panned.png'),scale:'css'
+ }));
+ let changed=0;
+ for(let y=Math.ceil(by+10);y<Math.floor(by+52*scale-10);y+=3)
+   for(let x=Math.ceil(bx+10);x<Math.floor(bx+72*scale-10);x+=3){
+     const i=(viewBefore.width*y+x)*4;
+     const delta=Math.abs(viewBefore.data[i]-viewAfter.data[i])+
+       Math.abs(viewBefore.data[i+1]-viewAfter.data[i+1])+
+       Math.abs(viewBefore.data[i+2]-viewAfter.data[i+2]);
+     if(delta>38)changed++;
+   }
+ if(changed<90)
+   throw Error(s.name+': drag failed to pan camera; changed sampled pixels='+changed);
+ const pausedAfter=await buttonBackground();
+ if(pausedAfter.some((v,i)=>Math.abs(v-pausedBefore[i])>12))
+   throw Error(s.name+': drag accidentally resumed the game / issued order');
  await tap(btn(1)); // new world resets
  await page.waitForTimeout(450);
  await page.screenshot({path:path.join(output,s.name+'-after.png'),scale:'css'});
  const errorVisible=await page.locator('#error').evaluate(el=>getComputedStyle(el).display!=='none');
  if(errorVisible)throw Error(s.name+': Frontier startup error displayed');
- console.log(JSON.stringify({scenario:s.name,colors:colors.size,canvas:meta,commands:'pause/play/recruit/attack/hold/retreat/zoom/reset',status:'PASS'}));
+ console.log(JSON.stringify({scenario:s.name,colors:colors.size,canvas:meta,commands:'pause/play/recruit/attack/hold/retreat/zoom/pan/reset',panningPixels:changed,status:'PASS'}));
  await ctx.close();
 }
 await browser.close();
 if(errors.length)throw Error(errors.join('\n'));
-console.log('PASS: Genesis Frontier rendered and responded to nine mobile/desktop controls.');
+console.log('PASS: Genesis Frontier rendered and responded to touch and mouse gestures, including camera panning without unintended orders.');
