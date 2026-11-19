@@ -3,6 +3,7 @@
 //! remains a later networking milestone.
 use genesis::frontier::{World, Terrain, Order, WIDTH, HEIGHT, FACTIONS, NEUTRAL};
 use macroquad::prelude::*;
+use std::collections::HashMap;
 
 fn config() -> Conf {
     Conf {
@@ -71,14 +72,51 @@ fn draw_button(rect:Rect,label:&str,active:bool) {
         rect.y+(rect.h+t.height)*0.5-2.,fs,WHITE);
 }
 
-fn pressed()->Option<Vec2>{
-    if let Some(t)=touches().into_iter().find(|t|t.phase==TouchPhase::Started){
-        return Some(t.position);
-    }
-    if is_mouse_button_pressed(MouseButton::Left) {
-        let (x,y)=mouse_position();return Some(vec2(x,y));
-    }
-    None
+/// Map gestures are intentionally deferred until release, so a drag
+/// never accidentally issues a move/attack order.
+const DRAG_THRESHOLD_PX: f32 = 9.0;
+
+#[derive(Clone, Copy)]
+struct MapGesture {
+    start: Vec2,
+    last: Vec2,
+    dragged: bool,
+}
+
+fn clamp_center(center: &mut Vec2, zoom: f32) {
+    let span_x = (WIDTH as f32 / zoom).clamp(10.0, WIDTH as f32);
+    let span_y = (HEIGHT as f32 / zoom).clamp(8.0, HEIGHT as f32);
+    center.x = center.x.clamp(span_x * 0.5, WIDTH as f32 - span_x * 0.5);
+    center.y = center.y.clamp(span_y * 0.5, HEIGHT as f32 - span_y * 0.5);
+}
+
+fn pan_by_pixels(center: &mut Vec2, zoom: f32, board: Rect, delta: Vec2) {
+    let view = view_rect(*center, zoom);
+    center.x -= delta.x * view.w / board.w;
+    center.y -= delta.y * view.h / board.h;
+    clamp_center(center, zoom);
+}
+
+/// Keep the terrain below the finger or mouse fixed while changing zoom.
+fn zoom_at(center: &mut Vec2, zoom: &mut f32, scale: f32, anchor: Vec2, board: Rect) {
+    let before = view_rect(*center, *zoom);
+    let point_before = vec2(
+        before.x + ((anchor.x - board.x) / board.w) * before.w,
+        before.y + ((anchor.y - board.y) / board.h) * before.h,
+    );
+    *zoom = (*zoom * scale).clamp(1.0, 5.0);
+    let after = view_rect(*center, *zoom);
+    let point_after = vec2(
+        after.x + ((anchor.x - board.x) / board.w) * after.w,
+        after.y + ((anchor.y - board.y) / board.h) * after.h,
+    );
+    *center += point_before - point_after;
+    clamp_center(center, *zoom);
+}
+
+fn screen_pos_from_world(pos: Vec2, board: Rect, view: Rect) -> Vec2 {
+    vec2(board.x + (pos.x + 0.5 - view.x) / view.w * board.w,
+         board.y + (pos.y + 0.5 - view.y) / view.h * board.h)
 }
 
 fn cell_to_screen(pos:(i16,i16),board:Rect,view:Rect)->Vec2 {
@@ -123,12 +161,21 @@ async fn main() {
     let mut mode=Order::Move;
     let mut zoom=1.0_f32;
     let mut center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
-    let mut pinch_prev:Option<f32>=None;
-    let mut notice=String::from("Select army dot, then tap destination. Defend your capital!");
+    let mut pinch_prev: Option<(f32, Vec2)> = None;
+    let mut map_gesture: Option<MapGesture> = None;
+    let mut suppress_single_touch = false;
+    let mut notice=String::from("Pinch to zoom, drag map to pan, tap to command.");
     let mut image=Image::gen_image_color(WIDTH as u16,HEIGHT as u16,BLACK);
     let texture=Texture2D::from_image(&image);
-    texture.set_filter(FilterMode::Nearest);
-    let mut last_texture_tick=u64::MAX;
+    // Smooth boundaries when magnified, rather than nearest-neighbor blocks.
+    texture.set_filter(FilterMode::Linear);
+    let mut last_texture_epoch=u64::MAX;
+    let mut last_texture_winter=false;
+    // Presentation-only positions: simulation remains authoritative/integer.
+    let mut visual_positions: HashMap<u32, Vec2> = HashMap::new();
+    let mut selected_supply=false;
+    let mut supply_status_at=u64::MAX;
+    let mut supply_status_id=0_u32;
 
     loop {
         let sw=screen_width();
@@ -176,7 +223,12 @@ async fn main() {
                     1=>{seed=seed.wrapping_add(1);world=World::new(seed);
                         selected=world.armies[0].id;mode=Order::Move;
                         zoom=1.;center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
-                        last_texture_tick=u64::MAX;running=true;
+                        last_texture_epoch=u64::MAX;
+                        map_gesture=None;
+                        pinch_prev=None;
+                        visual_positions.clear();
+                        supply_status_at=u64::MAX;
+                        running=true;
                         notice="New world generated. Your kingdom is BLUE.".into();}
                     2=>{
                         if let Some(id)=world.recruit(0) {
@@ -206,12 +258,8 @@ async fn main() {
                         } else {notice="No living army selected.".into();}
                         mode=Order::Move;
                     }
-                    7=>{zoom=(zoom*1.5).min(4.);
-                        if let Some(a)=player_army(&world,selected){
-                            center=vec2(a.x as f32,a.y as f32);
-                        }}
-                    8=>{zoom=(zoom/1.5).max(1.);
-                        if zoom==1. {center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);}}
+                    7=>{zoom_at(&mut center, &mut zoom, 1.5, board.center(), board);}
+                    8=>{zoom_at(&mut center, &mut zoom, 1.0/1.5, board.center(), board);}
                     _=>{}
                 }
             } else if board.contains(p) {
@@ -263,10 +311,30 @@ async fn main() {
             if n==5 {accumulator=accumulator.min(delta);}
         } else {accumulator=0.;}
         current_army(&world,&mut selected);
-        if last_texture_tick==u64::MAX || world.tick!=last_texture_tick {
+        // Territory only changes during the three-tick simulation phase.
+        // Avoid uploading a whole map texture on every simulation tick.
+        let terrain_epoch = world.tick/3;
+        if last_texture_epoch!=terrain_epoch || last_texture_winter!=world.winter() {
             refresh(&world,&mut image,&texture);
-            last_texture_tick=world.tick;
+            last_texture_epoch=terrain_epoch;
+            last_texture_winter=world.winter();
         }
+        // No BFS through the world every 60-FPS presentation frame.
+        if supply_status_at!=world.tick || supply_status_id!=selected {
+            selected_supply=player_army(&world,selected)
+                .is_some_and(|a|world.supply_connected(0,(a.x,a.y)));
+            supply_status_at=world.tick;
+            supply_status_id=selected;
+        }
+        let smoothing = 1.0 - (-get_frame_time().min(0.08)*11.0).exp();
+        for a in &world.armies {
+            let target=vec2(a.x as f32,a.y as f32);
+            let current=visual_positions.entry(a.id).or_insert(target);
+            // Only interpolate appearance; never modify authoritative position.
+            if (*current-target).length()>12.0 {*current=target;}
+            else {*current += (target-*current)*smoothing;}
+        }
+        visual_positions.retain(|id,_|world.armies.iter().any(|a|a.id==*id && a.troops>0));
 
         clear_background(Color::from_rgba(10,18,30,255));
         let heading=if wide {26.} else {(sw/16.).clamp(19.,27.)};
@@ -301,7 +369,9 @@ async fn main() {
         }
         for a in world.armies.iter().filter(|a|a.troops>0 &&
             world.kingdoms[a.owner as usize].alive) {
-            let p=cell_to_screen((a.x,a.y),board,view);
+            let visual=visual_positions.get(&a.id)
+                .copied().unwrap_or(vec2(a.x as f32,a.y as f32));
+            let p=screen_pos_from_world(visual,board,view);
             if !board.contains(p){continue;}
             let color=kingdom_color(a.owner);
             let radius=if a.owner==0 {8.} else {6.5};
@@ -344,7 +414,7 @@ async fn main() {
             draw_text(&stats,10.,y,(sw/33.).clamp(10.,14.),WHITE);
             let select_text=if let Some(a)=player_army(&world,selected){
                 format!("Selected army #{}: {} troops | {}",
-                    a.id,a.troops,if world.supply_connected(0,(a.x,a.y)){"SUPPLIED"}
+                    a.id,a.troops,if selected_supply{"SUPPLIED"}
                     else {"CUT OFF"})
             } else {"No army remaining. Recruit at capital.".into()};
             draw_text(&select_text,10.,y+17.,(sw/35.).clamp(10.,13.),
@@ -366,7 +436,7 @@ async fn main() {
             "VICTORY — Your kingdom dominates the world!"
         } else if world.winner.is_some() {
             "MATCH OVER — Another kingdom won."
-        } else {"SELECT ARMY DOT -> TAP MAP TO MOVE / ATTACK"};
+        } else {"TAP: COMMAND   DRAG: PAN   PINCH: ZOOM"};
         let instruction_y=if wide {controls_y+3.*57.+11.}
             else {controls_y-14.};
         draw_text(instruction,if wide {rail_x+10.} else {12.},
