@@ -149,7 +149,7 @@ async fn main() {
         let grid_side=7.;
         let button_w=(rail_w-24.-2.*grid_side)/3.;
         let button_h=49.;
-        let buttons:Vec<Rect>=(0.0.9).map(|i|Rect::new(
+        let buttons:Vec<Rect>=(0..9).map(|i|Rect::new(
             rail_x+12.+(i%3) as f32*(button_w+grid_side),
             controls_y+(i/3) as f32*57.,button_w,button_h)).collect();
 
@@ -163,7 +163,7 @@ async fn main() {
             }
             pinch_prev=Some(d);
         } else {pinch_prev=None;}
-        let wheel=mouse_wheel()0.1;
+        let wheel=mouse_wheel().1;
         if wheel!=0. {
             zoom=(zoom*(1.+wheel*0.15).max(0.6)).clamp(1.,4.);
         }
