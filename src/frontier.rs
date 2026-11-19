@@ -11,6 +11,9 @@ pub const FACTIONS: usize = 4;
 pub const NEUTRAL: u8 = 255;
 const N: usize = WIDTH * HEIGHT;
 
+/// A legible near-term objective for the first invasion; not a hardcoded win condition.
+pub const NORTH_CROSSING: (i16,i16) = (39,16);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Terrain { Sea, Plain, Farm, Forest, Mountain }
 
@@ -54,6 +57,16 @@ pub struct Army {
     pub id: u32,
 }
 
+/// Reports observable consequences of one deterministic simulation tick.
+/// The renderer reads this but cannot change world rules.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TurnReport {
+    pub captured: [u32; FACTIONS],
+    pub casualties: [u32; FACTIONS],
+    pub clashes: u32,
+    pub capital_taken: Option<(u8,u8)>, // winner, defeated
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct World {
     pub seed: u64,
@@ -62,6 +75,7 @@ pub struct World {
     pub kingdoms: [Kingdom; FACTIONS],
     pub armies: Vec<Army>,
     pub winner: Option<u8>,
+    pub last_report: TurnReport,
     next_id: u32,
 }
 
@@ -103,6 +117,37 @@ impl World {
         x>=0 && y>=0 && (x as usize)<WIDTH && (y as usize)<HEIGHT
     }
 
+    /// Find a forward position by flood-filling only *connected owned land*.
+    /// A nearby coordinate is not necessarily supplied: water may isolate it.
+    fn forward_position(&self,who:u8)->(i16,i16) {
+        let cap=self.kingdoms[who as usize].capital;
+        let toward=if cap.0 < WIDTH as i16/2 {1} else {-1};
+        let mut visited=vec![false;N];
+        let mut queue=VecDeque::new();
+        visited[Self::index(cap.0,cap.1)]=true;
+        queue.push_back(cap);
+        let mut best=cap;
+        let mut best_score=i16::MIN;
+        while let Some((x,y))=queue.pop_front() {
+            let forward=(x-cap.0)*toward;
+            let score=forward*4-(y-cap.1).abs();
+            if score>best_score && dist((x,y),cap)>=6 {
+                best=(x,y);
+                best_score=score;
+            }
+            for (dx,dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
+                let (nx,ny)=(x+dx,y+dy);
+                if !Self::valid(nx,ny) {continue;}
+                let at=Self::index(nx,ny);
+                if !visited[at] && self.tiles[at].owner==who {
+                    visited[at]=true;
+                    queue.push_back((nx,ny));
+                }
+            }
+        }
+        best
+    }
+
     pub fn new(seed:u64)->Self {
         let mut tiles=Vec::with_capacity(N);
         for y in 0..HEIGHT {
@@ -133,20 +178,28 @@ impl World {
             population:2400,alive:true,
         });
         let mut world=Self{seed,tick:0,tiles,kingdoms,armies:Vec::new(),
-            winner:None,next_id:1};
+            winner:None,last_report:TurnReport::default(),next_id:1};
         for i in 0..FACTIONS {
             let cap=CAPITALS[i];
             for dy in -7..=7i16 {
                 for dx in -7..=7i16 {
                     let (x,y)=(cap.0+dx,cap.1+dy);
-                    if Self::valid(x,y) && dx.abs()+dy.abs() <= 9 {
+                    if Self::valid(x,y) && dx.abs()+dy.abs() <= 14 {
                         let tile=&mut world.tiles[Self::index(x,y)];
                         if tile.terrain.traversable() { tile.owner=i as u8; }
                     }
                 }
             }
+            // An immediately selectable frontier army makes the first
+            // invasion seconds away, rather than a lengthy empty march.
+            let forward = world.forward_position(i as u8);
+            world.armies.push(Army{owner:i as u8,x:forward.0,y:forward.1,
+                target:forward,order:Order::Hold,troops:300,id:world.next_id});
+            world.next_id+=1;
+            // A small garrison gives defenders a real reason to attack
+            // capitals rather than instantly ending the match.
             world.armies.push(Army{owner:i as u8,x:cap.0,y:cap.1,
-                target:cap,order:Order::Hold,troops:260,id:world.next_id});
+                target:cap,order:Order::Hold,troops:150,id:world.next_id});
             world.next_id+=1;
         }
         world
@@ -237,8 +290,11 @@ impl World {
         Some(id)
     }
 
-    fn next_step(&self,from:(i16,i16),to:(i16,i16))->Option<(i16,i16)> {
-        if from==to {return None;}
+    /// Deterministic shortest traversable path; path excludes the start
+    /// and includes the reachable destination. This is a read-only projection
+    /// suitable for both authoritative movement and an animated route overlay.
+    pub fn route(&self,from:(i16,i16),to:(i16,i16))->Vec<(i16,i16)> {
+        if from==to || !Self::valid(from.0,from.1) {return Vec::new();}
         let to=self.nearest_land(to);
         let mut parents=vec![usize::MAX;N];
         let mut queue=VecDeque::new();
@@ -257,13 +313,20 @@ impl World {
                 queue.push_back((nx,ny));
             }
         }
-        if parents[end]==usize::MAX {return None;}
+        if parents[end]==usize::MAX {return Vec::new();}
         let mut cursor=end;
-        while parents[cursor]!=start {
+        let mut path=Vec::new();
+        while cursor!=start {
+            path.push(((cursor%WIDTH) as i16,(cursor/WIDTH) as i16));
             cursor=parents[cursor];
-            if cursor==start || cursor==usize::MAX {return None;}
+            if cursor==usize::MAX {return Vec::new();}
         }
-        Some(((cursor%WIDTH) as i16,(cursor/WIDTH) as i16))
+        path.reverse();
+        path
+    }
+
+    fn next_step(&self,from:(i16,i16),to:(i16,i16))->Option<(i16,i16)> {
+        self.route(from,to).first().copied()
     }
 
     fn advance_armies(&mut self) {
@@ -297,13 +360,18 @@ impl World {
                 // A fortified or supplied army inflicts more damage.
                 let defense_a=if self.terrain_at(a.x,a.y)==Terrain::Mountain {2} else {0};
                 let defense_b=if self.terrain_at(b.x,b.y)==Terrain::Mountain {2} else {0};
+                self.last_report.clashes+=1;
                 losses[i]=losses[i].saturating_add((b.troops/22).max(2)
                     .saturating_sub(defense_a).saturating_sub(if sa{1}else{0}));
                 losses[j]=losses[j].saturating_add((a.troops/22).max(2)
                     .saturating_sub(defense_b).saturating_sub(if sb{1}else{0}));
             }
         }
-        for (a,d) in self.armies.iter_mut().zip(losses) {a.troops=a.troops.saturating_sub(d);}
+        for (a,d) in self.armies.iter_mut().zip(losses) {
+            let actual=d.min(a.troops);
+            a.troops-=actual;
+            self.last_report.casualties[a.owner as usize]+=actual;
+        }
     }
 
     fn claim_land(&mut self) {
@@ -336,6 +404,7 @@ impl World {
                     }
                 }
                 self.tiles[index].owner=owner;
+                self.last_report.captured[owner as usize]+=1;
                 if let Some(defender)=self.kingdoms.iter().position(|k|k.capital==(px,py) &&
                     k.alive && k.capital!=self.kingdoms[owner as usize].capital) {
                     self.eliminate(defender,owner);
@@ -345,6 +414,7 @@ impl World {
     }
 
     fn eliminate(&mut self,defender:usize,winner:u8) {
+        self.last_report.capital_taken=Some((winner,defender as u8));
         self.kingdoms[defender].alive=false;
         for tile in &mut self.tiles {
             if tile.owner==defender as u8 {tile.owner=winner;}
@@ -400,9 +470,16 @@ impl World {
             if self.tick%90==0 {
                 let _=self.recruit(who as u8);
             }
+            // Favor opponents across the map's main front rather than
+            // spending the opening minute marching within one side.
+            let own=self.kingdoms[who].capital;
             let target=self.kingdoms.iter().enumerate()
                 .filter(|(i,k)|*i!=who && k.alive)
-                .min_by_key(|(_,k)|dist(self.kingdoms[who].capital,k.capital))
+                .min_by_key(|(_,k)| {
+                    let d=dist(own,k.capital);
+                    let vertical=(own.1-k.capital.1).abs();
+                    d + vertical*2
+                })
                 .map(|(_,k)|k.capital);
             for id in self.armies.iter().filter(|a|a.owner==who as u8 && a.troops>0)
                 .map(|a|a.id).collect::<Vec<_>>() {
@@ -420,6 +497,7 @@ impl World {
     pub fn step(&mut self) {
         if self.winner.is_some(){return;}
         self.tick+=1;
+        self.last_report=TurnReport::default();
         if self.tick%15==1 {self.bot_orders();}
         self.advance_armies();
         if self.tick%3==0 {
@@ -523,10 +601,59 @@ mod tests {
     #[test]
     fn bots_act_only_through_simulation_ticks() {
         let mut w=World::new(99);
-        let before=w.armies[1].target;
+        let bot=w.armies.iter().position(|a|a.owner==1).unwrap();
+        let before=w.armies[bot].target;
         for _ in 0..16 {w.step();}
-        assert_ne!(w.armies[1].target,before);
-        assert_eq!(w.armies[1].order,Order::Attack);
+        assert_ne!(w.armies[bot].target,before);
+        assert_eq!(w.armies[bot].order,Order::Attack);
+    }
+
+    #[test]
+    fn forward_armies_start_supplied_and_can_reach_the_crossing() {
+        for seed in [1, 9, 41, 77001] {
+            let world=World::new(seed);
+            let a=&world.armies[0];
+            assert_eq!(a.owner,0);
+            assert!(world.supply_connected(0,(a.x,a.y)));
+            let route=world.route((a.x,a.y),NORTH_CROSSING);
+            assert!(!route.is_empty(), "seed {seed} has no route");
+            for (x,y) in route {
+                assert!(world.terrain_at(x,y).traversable());
+            }
+        }
+    }
+
+    #[test]
+    fn invading_frontier_claims_land_and_reports_what_changed() {
+        let mut world=World::new(77001);
+        let a=world.armies[0].id;
+        assert!(world.issue(0,a,Order::Attack,NORTH_CROSSING));
+        let before=world.counts()[0];
+        let mut reported=0_u32;
+        for _ in 0..100 {
+            world.step();
+            reported+=world.last_report.captured[0];
+        }
+        assert!(world.counts()[0]>before,
+            "frontier army must be able to expand into reachable land");
+        assert!(reported>0);
+    }
+
+    #[test]
+    fn battle_reports_only_actual_lost_troops() {
+        let mut world=World::new(10);
+        let a=world.armies[0].clone();
+        let enemy=world.armies.iter().position(|a|a.owner==1).unwrap();
+        world.armies[enemy].x=a.x;
+        world.armies[enemy].y=a.y;
+        world.armies[enemy].troops=180;
+        let before_a=world.armies[0].troops;
+        let before_b=world.armies[enemy].troops;
+        world.last_report=TurnReport::default();
+        world.fight();
+        assert_eq!(world.last_report.clashes,1);
+        assert_eq!(before_a-world.armies[0].troops,world.last_report.casualties[0]);
+        assert_eq!(before_b-world.armies[enemy].troops,world.last_report.casualties[1]);
     }
 
     #[test]

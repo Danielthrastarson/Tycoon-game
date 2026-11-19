@@ -72,12 +72,21 @@ for(const s of cases) {
  await tap(btn(0)); // resume
  await tap(btn(2)); // recruit => selected cyan ring now at capital
  await tap(btn(5)); // attack mode
- const regionW=wide?railx-24:s.width-18;
- const regionH=wide?s.height-108:controlsy-98;
- const scale=Math.min(regionW/72,regionH/52);
- const bx=wide?12+(regionW-72*scale)*.5:(s.width-72*scale)*.5;
- const by=82+(regionH-52*scale)*.4;
- const map=(x,y)=>({x:bx+x*scale,y:by+y*scale});
+ // Portrait viewport fills the available board; its world view is
+ // deliberately cropped horizontally. The same transform is used in Rust.
+ const board={
+   x:wide?12:9,y:82,
+   w:wide?Math.max(100,railx-24):Math.max(100,s.width-18),
+   h:wide?Math.max(100,s.height-100):Math.max(100,controlsy-146)
+ };
+ const viewH=52,viewW=Math.min(72,viewH*board.w/board.h);
+ const viewX=Math.max(0,Math.min(72-viewW,26-viewW*.5));
+ const viewY=0;
+ const bx=board.x,by=board.y;
+ const map=(x,y)=>({
+   x:board.x+(x+.5-viewX)/viewW*board.w,
+   y:board.y+(y+.5-viewY)/viewH*board.h
+ });
  await tap(map(44,24));
  await tap(btn(4)); // hold selected army
  await tap(btn(6)); // retreat
@@ -93,7 +102,8 @@ for(const s of cases) {
  await page.waitForTimeout(420);
  const viewBefore=PNG.sync.read(await page.screenshot({scale:'css'}));
  const pausedBefore=await buttonBackground();
- const from=map(49,29),to=map(32,29);
+ const from={x:board.x+board.w*.72,y:board.y+board.h*.55};
+ const to={x:board.x+board.w*.38,y:from.y};
  const drag=async()=>{
    if(s.mobile) {
      const cdp=await ctx.newCDPSession(page);
@@ -126,8 +136,8 @@ for(const s of cases) {
    path:path.join(output,s.name+'-panned.png'),scale:'css'
  }));
  let changed=0;
- for(let y=Math.ceil(by+10);y<Math.floor(by+52*scale-10);y+=3)
-   for(let x=Math.ceil(bx+10);x<Math.floor(bx+72*scale-10);x+=3){
+ for(let y=Math.ceil(by+10);y<Math.floor(by+board.h-10);y+=3)
+   for(let x=Math.ceil(bx+10);x<Math.floor(bx+board.w-10);x+=3){
      const i=(viewBefore.width*y+x)*4;
      const delta=Math.abs(viewBefore.data[i]-viewAfter.data[i])+
        Math.abs(viewBefore.data[i+1]-viewAfter.data[i+1])+

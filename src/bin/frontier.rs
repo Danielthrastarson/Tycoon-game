@@ -1,7 +1,7 @@
 //! Genesis Frontier — readable competitive strategy, live Rust engine.
 //! Play against three computer-controlled kingdoms. Real online multiplayer
 //! remains a later networking milestone.
-use genesis::frontier::{World, Terrain, Order, WIDTH, HEIGHT, FACTIONS, NEUTRAL};
+use genesis::frontier::{World, Terrain, Order, WIDTH, HEIGHT, FACTIONS, NEUTRAL, NORTH_CROSSING};
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -45,15 +45,68 @@ fn blend(a:Color,b:Color,alpha:f32)->Color {
         a.g*(1.-alpha)+b.g*alpha,a.b*(1.-alpha)+b.b*alpha,1.)
 }
 
+// Simulation cells are low-resolution *state*, not display pixels.
+// Each logical cell gets four presentation pixels with gentle cartographic
+// detail and a thin coast/territorial boundary. No physics is smoothed.
+const MAP_RASTER: usize = 4;
+
 fn refresh(world:&World,image:&mut Image,texture:&Texture2D) {
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let tile=world.tiles[y*WIDTH+x];
             let base=terrain_color(tile.terrain,world.winter());
-            let color=if tile.owner==NEUTRAL || tile.terrain==Terrain::Sea {base}
-                else {blend(base,kingdom_color(tile.owner),
-                    if tile.terrain==Terrain::Mountain {0.35} else {0.70})};
-            image.set_pixel(x as u32,y as u32,color);
+            let mut ground=if tile.owner==NEUTRAL || tile.terrain==Terrain::Sea {
+                base
+            } else {
+                blend(base,kingdom_color(tile.owner),
+                    if tile.terrain==Terrain::Mountain {0.25} else {0.60})
+            };
+            // Quiet terrain variation reads as texture rather than a grid.
+            let variation=((x*17+y*31+world.seed as usize%19)%13) as f32;
+            ground=blend(ground,Color::from_rgba(209,222,193,255),
+                variation/260.0);
+            let east=if x+1<WIDTH {world.tiles[y*WIDTH+x+1]} else {tile};
+            let south=if y+1<HEIGHT {world.tiles[(y+1)*WIDTH+x]} else {tile};
+            let owner_edge_e=tile.owner!=east.owner && tile.terrain.traversable()
+                && east.terrain.traversable();
+            let owner_edge_s=tile.owner!=south.owner && tile.terrain.traversable()
+                && south.terrain.traversable();
+            let coast_e=tile.terrain.traversable()!=east.terrain.traversable();
+            let coast_s=tile.terrain.traversable()!=south.terrain.traversable();
+            for sy in 0..MAP_RASTER {
+                for sx in 0..MAP_RASTER {
+                    let mut c=ground;
+                    let edge= (sx==MAP_RASTER-1 && (owner_edge_e || coast_e))
+                        || (sy==MAP_RASTER-1 && (owner_edge_s || coast_s));
+                    if edge {
+                        // Thin warm outlines are clearer than block edges.
+                        let ink=if tile.owner==NEUTRAL {
+                            Color::from_rgba(142,171,161,255)
+                        } else {blend(kingdom_color(tile.owner),WHITE,0.38)};
+                        c=blend(c,ink,if coast_e||coast_s {0.50} else {0.65});
+                    } else {
+                        // Tiny marks hint at geography without drawing icons
+                        // for thousands of tiles every render frame.
+                        let detail=match tile.terrain {
+                            Terrain::Mountain=>sx==2 && sy==1,
+                            Terrain::Forest=>sx==1 && sy==2,
+                            Terrain::Farm=>sy==2 && (sx==1||sx==3),
+                            _=>false
+                        };
+                        if detail {
+                            c=blend(c,if tile.terrain==Terrain::Mountain {
+                                Color::from_rgba(222,226,224,255)
+                            } else if tile.terrain==Terrain::Forest {
+                                Color::from_rgba(18,60,50,255)
+                            } else {
+                                Color::from_rgba(213,220,147,255)
+                            },0.42);
+                        }
+                    }
+                    image.set_pixel((x*MAP_RASTER+sx) as u32,
+                        (y*MAP_RASTER+sy) as u32,c);
+                }
+            }
         }
     }
     texture.update(image);
@@ -83,35 +136,42 @@ struct MapGesture {
     dragged: bool,
 }
 
-fn clamp_center(center: &mut Vec2, zoom: f32) {
-    let span_x = (WIDTH as f32 / zoom).clamp(10.0, WIDTH as f32);
-    let span_y = (HEIGHT as f32 / zoom).clamp(8.0, HEIGHT as f32);
-    center.x = center.x.clamp(span_x * 0.5, WIDTH as f32 - span_x * 0.5);
-    center.y = center.y.clamp(span_y * 0.5, HEIGHT as f32 - span_y * 0.5);
+
+/// Temporary presentation-only information about an actual world change.
+struct VisualEvent {
+    position: Vec2,
+    label: String,
+    color: Color,
+    at: f64,
+}
+
+fn clamp_center(center: &mut Vec2, zoom: f32, board: Rect) {
+    let view=view_rect(*center,zoom,board);
+    *center=vec2(view.x+view.w*0.5,view.y+view.h*0.5);
 }
 
 fn pan_by_pixels(center: &mut Vec2, zoom: f32, board: Rect, delta: Vec2) {
-    let view = view_rect(*center, zoom);
+    let view = view_rect(*center, zoom,board);
     center.x -= delta.x * view.w / board.w;
     center.y -= delta.y * view.h / board.h;
-    clamp_center(center, zoom);
+    clamp_center(center, zoom, board);
 }
 
 /// Keep the terrain below the finger or mouse fixed while changing zoom.
 fn zoom_at(center: &mut Vec2, zoom: &mut f32, scale: f32, anchor: Vec2, board: Rect) {
-    let before = view_rect(*center, *zoom);
+    let before = view_rect(*center, *zoom, board);
     let point_before = vec2(
         before.x + ((anchor.x - board.x) / board.w) * before.w,
         before.y + ((anchor.y - board.y) / board.h) * before.h,
     );
     *zoom = (*zoom * scale).clamp(1.0, 5.0);
-    let after = view_rect(*center, *zoom);
+    let after = view_rect(*center, *zoom, board);
     let point_after = vec2(
         after.x + ((anchor.x - board.x) / board.w) * after.w,
         after.y + ((anchor.y - board.y) / board.h) * after.h,
     );
     *center += point_before - point_after;
-    clamp_center(center, *zoom);
+    clamp_center(center, *zoom,board);
 }
 
 fn screen_pos_from_world(pos: Vec2, board: Rect, view: Rect) -> Vec2 {
@@ -124,11 +184,17 @@ fn cell_to_screen(pos:(i16,i16),board:Rect,view:Rect)->Vec2 {
         board.y+(pos.1 as f32+0.5-view.y)/view.h*board.h)
 }
 
-fn view_rect(center:Vec2,zoom:f32)->Rect {
-    let w=(WIDTH as f32/zoom).clamp(10.,WIDTH as f32);
-    let h=(HEIGHT as f32/zoom).clamp(8.,HEIGHT as f32);
-    Rect::new((center.x-w*0.5).clamp(0.,WIDTH as f32-w),
-        (center.y-h*0.5).clamp(0.,HEIGHT as f32-h),w,h)
+/// Aspect-correct camera. The map fills the available phone display,
+/// cropping the distant world horizontally instead of wasting half the screen.
+fn view_rect(center:Vec2,zoom:f32,board:Rect)->Rect {
+    let mut h=(HEIGHT as f32/zoom).clamp(8.0,HEIGHT as f32);
+    let mut w=h*board.w/board.h;
+    if w>WIDTH as f32 {
+        w=WIDTH as f32;
+        h=w*board.h/board.w;
+    }
+    Rect::new((center.x-w*0.5).clamp(0.0,(WIDTH as f32-w).max(0.0)),
+        (center.y-h*0.5).clamp(0.0,(HEIGHT as f32-h).max(0.0)),w,h)
 }
 
 fn map_cell(pos:Vec2,board:Rect,view:Rect)->(i16,i16) {
@@ -156,16 +222,20 @@ async fn main() {
     let mut world=World::new(seed);
     let mut selected=world.armies[0].id;
     let mut running=true;
-    let mut speed=8_usize;
+    let mut speed=14_usize;
     let mut accumulator=0.0_f32;
     let mut mode=Order::Move;
     let mut zoom=1.0_f32;
-    let mut center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
+    let mut center=vec2(26.0,HEIGHT as f32*0.5);
     let mut pinch_prev: Option<(f32, Vec2)> = None;
     let mut map_gesture: Option<MapGesture> = None;
     let mut suppress_single_touch = false;
-    let mut notice=String::from("Pinch to zoom, drag map to pan, tap to command.");
-    let mut image=Image::gen_image_color(WIDTH as u16,HEIGHT as u16,BLACK);
+    let mut notice=String::from("Your forward army is selected. Secure the northern crossing.");
+    let mut visual_events:Vec<VisualEvent>=Vec::new();
+    let mut cached_route:Vec<(i16,i16)>=Vec::new();
+    let mut cached_route_key:Option<(u32,(i16,i16),(i16,i16))>=None;
+    let mut image=Image::gen_image_color((WIDTH*MAP_RASTER) as u16,
+        (HEIGHT*MAP_RASTER) as u16,BLACK);
     let texture=Texture2D::from_image(&image);
     // Smooth boundaries when magnified, rather than nearest-neighbor blocks.
     texture.set_filter(FilterMode::Linear);
@@ -173,6 +243,7 @@ async fn main() {
     let mut last_texture_winter=false;
     // Presentation-only positions: simulation remains authoritative/integer.
     let mut visual_positions: HashMap<u32, Vec2> = HashMap::new();
+    let mut movement_origins: HashMap<u32, Vec2> = HashMap::new();
     let mut selected_supply=false;
     let mut supply_status_at=u64::MAX;
     let mut supply_status_id=0_u32;
@@ -184,15 +255,16 @@ async fn main() {
         let rail_w=if wide {(sw*0.32).clamp(285.,340.)} else {sw};
         let rail_x=if wide {sw-rail_w} else {0.};
         let controls_y=if wide {178.} else {(sh-211.).max(350.)};
-        let board_region_w=if wide {rail_x-24.} else {sw-18.};
-        let board_region_h=if wide {sh-108.} else {controls_y-98.};
-        let map_scale=(board_region_w/WIDTH as f32).min(board_region_h/HEIGHT as f32);
-        let board=Rect::new(
-            if wide {12.+(board_region_w-WIDTH as f32*map_scale)*0.5}
-            else {(sw-WIDTH as f32*map_scale)*0.5},
-            82.+(board_region_h-HEIGHT as f32*map_scale)*0.4,
-            WIDTH as f32*map_scale,HEIGHT as f32*map_scale,
-        );
+        // Full-bleed strategy viewport. The simulation has fixed cells, but
+        // its camera does not need to show all 72x52 cells simultaneously.
+        // On phones we show a tall portrait slice that fills the display.
+        let board=if wide {
+            Rect::new(12.0,82.0,(rail_x-24.0).max(100.0),
+                (sh-100.0).max(100.0))
+        } else {
+            Rect::new(9.0,82.0,(sw-18.0).max(100.0),
+                (controls_y-146.0).max(100.0))
+        };
         let grid_side=7.;
         let button_w=(rail_w-24.-2.*grid_side)/3.;
         let button_h=49.;
@@ -260,11 +332,15 @@ async fn main() {
                         else {"Paused. Issue orders, then resume."}.into();}
                     1=>{seed=seed.wrapping_add(1);world=World::new(seed);
                         selected=world.armies[0].id;mode=Order::Move;
-                        zoom=1.;center=vec2(WIDTH as f32*0.5,HEIGHT as f32*0.5);
+                        zoom=1.;center=vec2(26.0,HEIGHT as f32*0.5);
                         last_texture_epoch=u64::MAX;
                         map_gesture=None;
                         pinch_prev=None;
                         visual_positions.clear();
+                        movement_origins.clear();
+                        visual_events.clear();
+                        cached_route_key=None;
+                        cached_route.clear();
                         supply_status_at=u64::MAX;
                         running=true;
                         notice="New world generated. Your kingdom is BLUE.".into();}
@@ -320,7 +396,7 @@ async fn main() {
                     if !gesture.dragged &&
                         (finish-gesture.start).length()<DRAG_THRESHOLD_PX &&
                         board.contains(finish) {
-                        let cell=map_cell(finish,board,view_rect(center,zoom));
+                        let cell=map_cell(finish,board,view_rect(center,zoom,board));
                         // A tap near your army selects; tapping elsewhere
                         // issues one command only when the finger lifts.
                         let picked=world.armies.iter()
@@ -355,7 +431,7 @@ async fn main() {
             }
         }
         if is_key_pressed(KeyCode::Tab) {
-            speed=match speed {4=>8,8=>16,_=>4};
+            speed=match speed {8=>14,14=>22,_=>8};
             notice=format!("Speed: {speed} ticks per second.");
         }
 
@@ -364,7 +440,47 @@ async fn main() {
             let delta=1./speed as f32;
             let mut n=0;
             while accumulator>=delta && n<5 {
+                if (world.tick+1)%3==0 {
+                    // Simulation movement occurs every three ticks. Capture
+                    // each pre-step position for constant-speed presentation
+                    // until the next movement phase, without changing rules.
+                    movement_origins.clear();
+                    for a in &world.armies {
+                        movement_origins.insert(a.id,vec2(a.x as f32,a.y as f32));
+                    }
+                }
                 world.step();
+                // These effects are derived from *actual* battles/captures,
+                // never scripted progress or unearned visual territory.
+                if world.last_report.captured[0] > 0 {
+                    if let Some(a)=world.armies.iter().find(|a|a.owner==0 &&
+                        a.troops>0 && a.order!=Order::Hold) {
+                        visual_events.push(VisualEvent {
+                            position:vec2(a.x as f32,a.y as f32),
+                            label:format!("+{} LAND",world.last_report.captured[0]),
+                            color:Color::from_rgba(145,248,210,255),
+                            at:get_time(),
+                        });
+                    }
+                }
+                if world.last_report.clashes > 0 {
+                    if let Some(a)=world.armies.iter().find(|a|a.troops>0 &&
+                        world.armies.iter().any(|b|b.owner!=a.owner && b.troops>0 &&
+                            (b.x-a.x).abs()+(b.y-a.y).abs()<=1)) {
+                        let losses: u32=world.last_report.casualties.iter().sum();
+                        visual_events.push(VisualEvent {
+                            position:vec2(a.x as f32,a.y as f32),
+                            label:format!("BATTLE -{losses}"),
+                            color:Color::from_rgba(255,177,140,255),
+                            at:get_time(),
+                        });
+                    }
+                }
+                if let Some((attacker,defender))=world.last_report.capital_taken {
+                    notice=format!("{} CAPTURED {}'S CAPITAL!",
+                        world.kingdoms[attacker as usize].name,
+                        world.kingdoms[defender as usize].name);
+                }
                 accumulator-=delta;
                 n+=1;
             }
@@ -386,32 +502,95 @@ async fn main() {
             supply_status_at=world.tick;
             supply_status_id=selected;
         }
-        let smoothing = 1.0 - (-get_frame_time().min(0.08)*11.0).exp();
+        let phase=if running {
+            ((world.tick%3) as f32 + accumulator*speed as f32)
+                .clamp(0.0,3.0)/3.0
+        } else {((world.tick%3) as f32)/3.0};
         for a in &world.armies {
-            let target=vec2(a.x as f32,a.y as f32);
-            let current=visual_positions.entry(a.id).or_insert(target);
-            // Only interpolate appearance; never modify authoritative position.
-            if (*current-target).length()>12.0 {*current=target;}
-            else {*current += (target-*current)*smoothing;}
+            let destination=vec2(a.x as f32,a.y as f32);
+            let origin=movement_origins.get(&a.id).copied()
+                .unwrap_or(destination);
+            // Constant velocity across a tile is visibly smoother than an
+            // exponential catch-up that stalls between simulation steps.
+            visual_positions.insert(a.id,origin.lerp(destination,phase));
         }
         visual_positions.retain(|id,_|world.armies.iter().any(|a|a.id==*id && a.troops>0));
+        visual_events.retain(|effect|get_time()-effect.at<1.35);
+        // Pathfinding is cached on movement/order changes; never recompute
+        // an entire shortest path inside every display frame.
+        if let Some(a)=player_army(&world,selected) {
+            let key=(selected,(a.x,a.y),a.target);
+            if cached_route_key!=Some(key) {
+                cached_route=world.route((a.x,a.y),a.target);
+                cached_route_key=Some(key);
+            }
+        } else {cached_route.clear();cached_route_key=None;}
 
         clear_background(Color::from_rgba(10,18,30,255));
         let heading=if wide {26.} else {(sw/16.).clamp(19.,27.)};
         draw_text("GENESIS  /  FRONTIER",12.,34.,heading,WHITE);
         draw_text(&format!("TICK {}  |  {}  |  {} TICKS/S",
             world.tick,if world.winter() {"WINTER"} else {"SUMMER"},speed),
-            13.,57.,14.,Color::from_rgba(160,198,216,255));
+            13.,55.,13.,Color::from_rgba(160,198,216,255));
+        let secured=world.owner_at(NORTH_CROSSING.0,NORTH_CROSSING.1)==0;
+        let mission=if secured {"CROSSING SECURED - PUSH INTO ENEMY LAND"}
+            else {"OBJECTIVE: CAPTURE NORTHERN CROSSING"};
+        draw_text(mission,13.,73.,(sw/33.5).clamp(10.,13.),
+            if secured {Color::from_rgba(140,239,197,255)}
+            else {Color::from_rgba(252,205,135,255)});
 
         // Readable, minimal pixel-art geography; overlays are projections of
         // the same Rust world, not independent gameplay data.
-        let view=view_rect(center,zoom);
+        let view=view_rect(center,zoom,board);
         draw_texture_ex(&texture,board.x,board.y,WHITE,DrawTextureParams{
-            source:Some(view),dest_size:Some(vec2(board.w,board.h)),
+            source:Some(Rect::new(view.x*MAP_RASTER as f32,
+                view.y*MAP_RASTER as f32,
+                view.w*MAP_RASTER as f32,view.h*MAP_RASTER as f32)),
+            dest_size:Some(vec2(board.w,board.h)),
             ..Default::default()
         });
         draw_rectangle_lines(board.x,board.y,board.w,board.h,1.,
             Color::from_rgba(137,173,192,255));
+
+        // The crossing is a visible, immediately meaningful first goal.
+        let crossing=cell_to_screen(NORTH_CROSSING,board,view);
+        if board.contains(crossing) {
+            let pulse=((get_time() as f32*3.0).sin()+1.0)*0.5;
+            let edge=if secured {Color::from_rgba(136,251,200,255)}
+                else {Color::from_rgba(254,211,130,255)};
+            draw_circle_lines(crossing.x,crossing.y,8.0+pulse*3.5,1.7,edge);
+            draw_circle(crossing.x,crossing.y,3.0,edge);
+            if zoom>=1.4 {
+                let t=if secured {"CROSSING: OURS"} else {"TAKE CROSSING"};
+                let size=11.0;
+                let m=measure_text(t,None,11,1.0);
+                let x=(crossing.x-m.width*0.5).clamp(board.x+3.0,
+                    (board.x+board.w-m.width-3.0).max(board.x+3.0));
+                draw_rectangle(x-3.0,crossing.y-28.0,m.width+6.0,16.0,
+                    Color::from_rgba(19,34,45,220));
+                draw_text(t,x,crossing.y-16.0,size,edge);
+            }
+        }
+
+        // Route follows the authoritative Rust shortest path, not a direct
+        // line through mountains or impassable water.
+        if let Some(a)=player_army(&world,selected) {
+            let current=visual_positions.get(&a.id)
+                .copied().unwrap_or(vec2(a.x as f32,a.y as f32));
+            let mut prev=screen_pos_from_world(current,board,view);
+            for (i,step) in cached_route.iter().enumerate() {
+                let next=cell_to_screen(*step,board,view);
+                if board.contains(prev) && board.contains(next) {
+                    draw_line(prev.x,prev.y,next.x,next.y,2.0,
+                        Color::from_rgba(12,30,38,220));
+                    if (i as u64+world.tick/2)%3 != 0 {
+                        draw_line(prev.x,prev.y,next.x,next.y,1.7,
+                            Color::from_rgba(111,227,246,245));
+                    }
+                }
+                prev=next;
+            }
+        }
         for i in 0..FACTIONS {
             if !world.kingdoms[i].alive {continue;}
             let cap=world.kingdoms[i].capital;
@@ -435,9 +614,32 @@ async fn main() {
             if !board.contains(p){continue;}
             let color=kingdom_color(a.owner);
             let radius=if a.owner==0 {8.} else {6.5};
-            draw_circle(p.x,p.y,radius,Color::from_rgba(11,21,34,255));
-            draw_circle_lines(p.x,p.y,radius+1.,2.,color);
-            draw_circle(p.x,p.y,3.,color);
+            // A small moving troop formation is much more legible than one
+            // lonely dot. Combat and motion still come from the Rust sim.
+            let heading=vec2(a.target.0 as f32-visual.x,
+                a.target.1 as f32-visual.y);
+            let direction=if heading.length()>0.2 {
+                heading.normalize()
+            } else {vec2(1.0,0.0)};
+            let side=vec2(-direction.y,direction.x);
+            let spacing=(board.w/view.w*0.32).clamp(3.0,6.0);
+            draw_circle(p.x,p.y,radius+2.5,Color::from_rgba(10,20,32,220));
+            for (ahead,across) in [(-1.0,-0.7),(-1.0,0.7),
+                (0.0,-0.95),(0.0,0.95),(0.85,0.0)] {
+                let wobble=(get_time() as f32*7.0+ahead*3.0+across).sin()*0.4;
+                let offset=direction*(ahead*spacing+wobble)+side*across*spacing;
+                draw_circle(p.x+offset.x,p.y+offset.y,2.0,color);
+            }
+            draw_circle_lines(p.x,p.y,radius+1.0,1.5,
+                if a.owner==0 && a.id==selected {WHITE}else{color});
+            let bar_width=24.0;
+            let strength=(a.troops as f32/300.0).clamp(0.0,1.0);
+            draw_rectangle(p.x-bar_width*0.5,p.y+radius+6.0,
+                bar_width,3.0,Color::from_rgba(15,26,38,220));
+            draw_rectangle(p.x-bar_width*0.5,p.y+radius+6.0,
+                bar_width*strength,3.0,
+                if strength>0.4 {Color::from_rgba(147,238,196,255)}
+                else {Color::from_rgba(252,169,116,255)});
             if a.owner==0 && a.id==selected {
                 draw_circle_lines(p.x,p.y,radius+5.,2.,Color::from_rgba(133,242,255,255));
                 let dest=cell_to_screen(a.target,board,view);
@@ -455,6 +657,22 @@ async fn main() {
             draw_rectangle(tx-3.,p.y-25.,measured.width+6.,14.,
                 Color::from_rgba(16,26,39,226));
             draw_text(&count,tx,p.y-14.,size,WHITE);
+        }
+
+        // Quick feedback for real captures and clashes: rises and fades.
+        for effect in &visual_events {
+            let elapsed=(get_time()-effect.at) as f32;
+            let pos=screen_pos_from_world(effect.position,board,view);
+            if !board.contains(pos) {continue;}
+            let mut tint=effect.color;
+            tint.a=(1.0-elapsed/1.35).clamp(0.0,1.0);
+            let font=13.0;
+            let measurement=measure_text(&effect.label,None,13,1.0);
+            let px=pos.x-measurement.width*0.5;
+            let py=pos.y-22.0-elapsed*16.0;
+            draw_rectangle(px-4.0,py-14.0,measurement.width+8.0,18.0,
+                Color::new(0.04,0.09,0.14,0.7*tint.a));
+            draw_text(&effect.label,px,py,font,tint);
         }
 
         let counts=world.counts();
