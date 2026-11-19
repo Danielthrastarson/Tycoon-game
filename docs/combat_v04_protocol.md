@@ -21,7 +21,7 @@ optimize directly for a predetermined victory.
   at a time and reduces incoming casualties 30%; forest reduces incoming
   losses 10%. When disabled, only the combat multipliers are removed.
 - **Supply:** each army group begins with six carried provision tokens and each
-  team with 96 reserve tokens. A group consumes one token per round; a
+  team with 400 reserve tokens. A group consumes one token per round; a
   connected depot can transfer a real reserve token back to that group.
   Physical enemy occupancy behind a force or near its depot interdicts
   resupply. Empty provisions reduce combat effectiveness 30% and cause
@@ -48,7 +48,8 @@ integration is a separate decision.
 
 ## Pre-registered protocol
 
-- **Cases:** mountain pass (400 versus 650), supply corridor (400 versus
+- **Cases:** mountain pass (400 versus 650; the 400-troop defender starts
+  directly on the pass), supply corridor (400 versus
   650), open field (500 versus 500).
 - **Policies:** DirectRush, PassDefense, SupplyRaid, Adaptive. A fixed
   opposing policy is the common comparison.
@@ -112,6 +113,26 @@ For a future holdout *after freezing parameters*, proposed criteria:
 These are conditions to **investigate**, not scores to optimize against the
 holdout set. Statistical confidence requires comparing same-seed, same-side
 paired outcomes, and holdout adjustments for multiple comparisons.
+
+## Pilot protocol revision before holdout
+
+The first 32-seed screening (V0.4.0, before promoting any mechanic) produced
+mostly unresolved draws and virtually no smaller-force victories. The raw
+ledger confirmed that starting with 96 reserve tokens caused **both** sides
+to exhaust their stocks by around round 54 even with uninterrupted logistics.
+That made the supply-on experiment partly a global depletion timer instead
+of a supply-line interdiction test. Some nominal mountain defenders also
+started away from the pass and couldn't exploit the test scenario.
+
+The corrective **V0.4.1 screening revision** increases the initial finite
+reserve to 400 tokens (sufficient for 80 rounds of uninterrupted two-squad
+resupply) and starts the smaller mountain defender on the mountain pass.
+No combat damage coefficient has been tuned for the desired winner. The
+original screening seeds remain **development/training seeds**, not
+statistical holdout data. The 900000–900255 holdout seeds have not been used.
+
+Do not erase the negative pilot result or retroactively describe this
+revision as a successful pre-registration of the original setup.
 
 ## Design limits and confounds
 
