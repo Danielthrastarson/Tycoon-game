@@ -340,14 +340,14 @@ async fn main() {
                 player_army(&world,selected).map_or(0,|a|a.troops)),
                 rail_x+12.,153.,15.,LIGHTGRAY);
         } else {
-            let y=(board.y+board.h+27.).min(controls_y-42.);
+            let y=(board.y+board.h+18.).min(controls_y-49.);
             draw_text(&stats,10.,y,(sw/33.).clamp(10.,14.),WHITE);
             let select_text=if let Some(a)=player_army(&world,selected){
                 format!("Selected army #{}: {} troops | {}",
                     a.id,a.troops,if world.supply_connected(0,(a.x,a.y)){"SUPPLIED"}
                     else {"CUT OFF"})
             } else {"No army remaining. Recruit at capital.".into()};
-            draw_text(&select_text,10.,y+21.,(sw/35.).clamp(10.,13.),
+            draw_text(&select_text,10.,y+17.,(sw/35.).clamp(10.,13.),
                 Color::from_rgba(170,221,230,255));
         }
 
