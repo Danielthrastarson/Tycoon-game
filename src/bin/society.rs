@@ -2,6 +2,7 @@
 //! dots = agents, green pixels = resource stock, lines = recorded social ties,
 //! colors and labels = observer-detected clusters (not predefined factions).
 use genesis::society::{Observer, World, SIDE};
+use genesis::settlements::SettlementObserver;
 use genesis::military::Order;
 use macroquad::prelude::*;
 
@@ -131,6 +132,7 @@ async fn main() {
     let mut seed = 73021_u64;
     let mut world = World::new(seed);
     let mut observer = Observer::default();
+    let mut settlement_observer = SettlementObserver::default();
     // Begin paused: the player can understand the board before agents die.
     let mut running = false;
     let mut speed = 2_usize;
@@ -188,7 +190,10 @@ async fn main() {
                 held_ticks = hold_progress(&world, held_ticks, hold_issued);
                 accumulator -= interval;
                 steps += 1;
-                if world.tick % 24 == 0 { observer.observe(&world); }
+                if world.tick % 24 == 0 {
+                    observer.observe(&world);
+                    settlement_observer.observe(&world);
+                }
             }
             if steps == 4 { accumulator = accumulator.min(interval); }
         } else { accumulator = 0.0; }
@@ -227,6 +232,7 @@ async fn main() {
                             seed = seed.wrapping_add(1);
                             world = World::new(seed);
                             observer = Observer::default();
+                            settlement_observer = SettlementObserver::default();
                             last_food_tick = u64::MAX;
                             selected = None;
                             pending = None;
@@ -281,7 +287,10 @@ async fn main() {
                         1 => {
                             world.step();
                             held_ticks = hold_progress(&world, held_ticks, hold_issued);
-                            if world.tick % 24 == 0 { observer.observe(&world); }
+                            if world.tick % 24 == 0 {
+                                observer.observe(&world);
+                                settlement_observer.observe(&world);
+                            }
                             running = false;
                             notice = "Advanced one simulation tick.".into();
                         }
@@ -363,11 +372,13 @@ async fn main() {
         draw_text("GENESIS", 12.0, 34.0, 30.0, WHITE);
         draw_text("COMMAND THE ARMY. THE WORLD RUNS ITSELF.", 13.0, 55.0,
             if sw < 410.0 { 12.0 } else { 15.0 }, LIGHTGRAY);
-        draw_text(&format!("Tick {}   Alive {}   Groups {}   Army {}",
-            world.tick, world.alive_count(), observer.stable_groups(), world.soldier_count()),
+        draw_text(&format!("Tick {}   Alive {}   Hamlets {}   Army {}",
+            world.tick, world.alive_count(),
+            settlement_observer.stable_count(), world.soldier_count()),
             13.0, 77.0, 17.0, Color::from_rgba(191, 211, 228, 255));
-        draw_text(&format!("Denied {}  Overrun {}  World {}",
-            world.cumulative_access_denied, world.cumulative_access_overrun, seed),
+        draw_text(&format!("Camps {}   Groups {}   Food stored {}",
+            world.camps.len(), observer.stable_groups(),
+            world.camps.iter().map(|c| c.supplies as u32).sum::<u32>()),
             13.0, 95.0, 13.0, Color::from_rgba(143, 165, 180, 255));
 
         draw_rectangle(board.x, board.y, board.w, board.h,
@@ -378,6 +389,44 @@ async fn main() {
                 dest_size: Some(vec2(board.w, board.h)),
                 ..Default::default()
             });
+        }
+
+        // Physical camps are created only by agent construction. Amber squares
+        // persist as ruins, even if the living settlement around them dies.
+        for camp in &world.camps {
+            let pos = point_to_screen(
+                camp.x as f32 + 0.5, camp.y as f32 + 0.5, board, visible);
+            if !board.contains(pos) { continue; }
+            let size = (board.w / visible.w * 2.4).clamp(5.0, 12.0);
+            let used = world.tick.saturating_sub(camp.last_used_tick) <= 48;
+            let col = if used {
+                Color::from_rgba(251, 192, 92, 255)
+            } else {
+                Color::from_rgba(113, 100, 88, 255)
+            };
+            draw_rectangle(pos.x-size*0.5, pos.y-size*0.5, size, size, col);
+            draw_rectangle_lines(pos.x-size*0.5-1.0, pos.y-size*0.5-1.0,
+                size+2.0, size+2.0, 1.0, BLACK);
+        }
+        for settlement in settlement_observer.settlements.iter().filter(|s| s.visible()) {
+            let pos = point_to_screen(
+                settlement.x as f32 + 0.5, settlement.y as f32 + 0.5, board, visible);
+            if !board.contains(pos) { continue; }
+            let radius = 7.0 * board.w / visible.w;
+            let col = Color::from_rgba(251, 199, 96, 255);
+            if radius < board.w * 0.75 {
+                for segment in (0..32).step_by(2) {
+                    let a = segment as f32 * std::f32::consts::TAU / 32.0;
+                    let b = (segment + 1) as f32 * std::f32::consts::TAU / 32.0;
+                    draw_line(pos.x + radius*a.cos(), pos.y + radius*a.sin(),
+                        pos.x + radius*b.cos(), pos.y + radius*b.sin(),
+                        1.3, Color::new(col.r,col.g,col.b,0.65));
+                }
+            }
+            let name = settlement.name();
+            draw_text(&name, (pos.x - 23.0).clamp(board.x+2.0,board.x+board.w-75.0),
+                (pos.y-radius-5.0).clamp(board.y+13.0,board.y+board.h-8.0),
+                11.0, col);
         }
 
         // Military overlays are player-issued commands, not emergent kingdoms.
@@ -516,7 +565,7 @@ async fn main() {
             format!("Soldiers: {}  Order: {}  Hold: {}/20",
                 world.soldier_count(), squad.order.name(), held_ticks)
         } else {
-            "White dots: people. Green: food. Cyan: your army.".into()
+            "White: people. Green: food. Amber: built camps.".into()
         };
         draw_text(&sentence, hint_x + 5.0, hint_y + 26.0,
             (hint_width / (sentence.len() as f32 * 0.57)).clamp(11., 15.),
@@ -536,7 +585,7 @@ async fn main() {
                 } else if world.squad.is_some() {
                     "OBJECTIVE: HOLD A GREEN SITE FOR 20 TICKS"
                 } else {
-                    "YOUR FIRST MISSION: RECRUIT AND HOLD"
+                    "WORLD: HAMLETS FORM WITHOUT YOUR ORDERS"
                 };
                 draw_text(header, 17.0, panel_top + 20.0,
                     ((sw - 35.0) / (header.len() as f32 * 0.59)).clamp(10.0, 16.0),
@@ -549,8 +598,8 @@ async fn main() {
                     else { living.iter().map(|a| a.energy as u32).sum::<u32>()
                         / living.len() as u32 }
                 } else { 0 };
-                draw_text(&format!("Hold {}/20   Soldiers {}   Avg energy {}",
-                    held_ticks, world.soldier_count(), avg_energy),
+                draw_text(&format!("Hamlets {}   Camps {}   Army energy {}",
+                    settlement_observer.stable_count(), world.camps.len(), avg_energy),
                     17.0, panel_top + 39.0, 13.0, LIGHTGRAY);
                 if panel_h >= 58.0 {
                     let bar_y = panel_top + 46.0;
