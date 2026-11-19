@@ -285,8 +285,8 @@ mod tests {
             let crossing=px(b.objective);
             assert!(sea[2]>sea[0]+35,
                 "water must retain obvious blue chroma");
-            assert!(crossing[0]>crossing[2]-12,
-                "physical crossing must not look like deep water");
+            assert!(crossing[0] as i32 > sea[0] as i32+45,
+                "traversable mountain crossing must be much less blue than deep water");
         }
     }
 
