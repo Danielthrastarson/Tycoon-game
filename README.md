@@ -24,6 +24,30 @@ The player still controls only military interventions: tap the map to recruit ei
 
 These are deliberately designed **agent capabilities**, not a demonstration that life or technology emerged from physical particles. The observed locations and social patterns arise from those rules; kingdoms and institutions remain future goals.
 
+## Genesis V0.4.2 — experimentally test physical objectives
+
+V0.4.2 is a **headless laboratory update**, not a change to the playable
+Frontier game. The four combat mechanics remain independently toggleable.
+The new scenarios resolve physically contested missions: hold the mountain
+pass under attack, break through to a defended tile, interdict a road for five
+rounds, or secure an uncontested midfield control zone. Opposing units now
+block each other's movement rather than phasing through.
+
+An additional **400-versus-650 open-field control** distinguishes numerical
+superiority from the existing equal-force open-field baseline. The complete
+screening is 16 ablations × 4 scenarios × 4 policies × 2 geographical sides
+× 32 matched development seeds = **16,384 matches per opponent**.
+Both Standard and Counter adversaries are evaluated, for **32,768 total
+screening matches**. Results record actual victory reasons, losses and
+draws separately. As before, holdout seeds remain untouched until the
+mission design and policies are frozen.
+
+See [V0.4.2 objectives and falsification criteria](docs/combat_v042_objectives.md).
+See [the 32,768-match screening results](docs/combat_v042_screening_results.md)
+for the actual underdog wins, counter-AI losses and unconfirmed conclusions.
+The [V0.4.1 negative screening](docs/combat_v04_screening_results.md)
+remains archived instead of being rewritten as a success.
+
 ## Genesis V0.4 — experimental tactical combat laboratory
 
 The **current playable Frontier game is unchanged**. V0.4 introduces a separate

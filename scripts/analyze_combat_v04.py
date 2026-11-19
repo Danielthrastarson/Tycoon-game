@@ -12,7 +12,7 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
-SCENARIOS = ("mountain_pass", "supply_corridor", "open_field")
+SCENARIOS = ("mountain_pass", "supply_corridor", "open_field", "outnumbered_field")
 POLICIES = ("direct_rush", "pass_defense", "supply_raid", "adaptive")
 
 
@@ -49,11 +49,16 @@ def analyze(path: Path) -> str:
     phase = phases.pop()
     unique_seeds = {int(r["seed_index"]) for r in rows}
     present_masks = {int(r["mask"]) for r in rows}
+    opponents = {r.get("opponent_policy", "standard") for r in rows}
+    if len(opponents) != 1:
+        raise ValueError("opponent variants must be analyzed as separate cohorts")
+    opponent = next(iter(opponents))
     phase_caption = "exploratory screening" if phase == "screening" else "holdout validation"
     lines = [
         "# Genesis V0.4 — tactical combat results",
         "",
         f"**Phase:** {phase_caption}  ",
+        f"**Opponent AI:** {opponent}  ",
         f"**Runs:** {len(rows):,}  ",
         f"**Matched seeds:** {len(unique_seeds)}  ",
         f"**Ablation masks:** {len(present_masks)}  ",

@@ -19,6 +19,11 @@ const CELLS: usize = FIELD_WIDTH as usize * FIELD_HEIGHT as usize;
 const START_RESERVE: u16 = 400;
 const START_PROVISIONS: u8 = 6;
 const PASS: (i16, i16) = (7, 4);
+/// Explicitly observable mission objectives, not bonuses to a chosen AI.
+pub const MOUNTAIN_DEFEND_ROUNDS: u16 = 24;
+pub const BREAKTHROUGH_ROUNDS: u8 = 3;
+pub const INTERDICTION_ROUNDS: u8 = 5;
+pub const OPEN_CONTROL_ROUNDS: u8 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CombatRules {
@@ -52,16 +57,42 @@ impl CombatRules {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scenario { MountainPass, SupplyCorridor, OpenField }
+pub enum Scenario { MountainPass, SupplyCorridor, OpenField, OutnumberedField }
 impl Scenario {
-    pub const ALL: [Self; 3] = [
-        Self::MountainPass, Self::SupplyCorridor, Self::OpenField,
+    pub const ALL: [Self; 4] = [
+        Self::MountainPass, Self::SupplyCorridor,
+        Self::OpenField, Self::OutnumberedField,
     ];
     pub fn label(self) -> &'static str {
         match self {
             Self::MountainPass => "mountain_pass",
             Self::SupplyCorridor => "supply_corridor",
             Self::OpenField => "open_field",
+            Self::OutnumberedField => "outnumbered_field",
+        }
+    }
+}
+
+/// Scenarios declare physical victory conditions independently of the
+/// strategy or ablation mask. A time limit without an objective is a draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VictoryReason {
+    Annihilation,
+    DepotCapture,
+    PassHeld,
+    Breakthrough,
+    SupplyInterdicted,
+    CenterSecured,
+}
+impl VictoryReason {
+    pub fn label(self)->&'static str {
+        match self {
+            Self::Annihilation=>"annihilation",
+            Self::DepotCapture=>"depot_capture",
+            Self::PassHeld=>"pass_held",
+            Self::Breakthrough=>"breakthrough",
+            Self::SupplyInterdicted=>"supply_interdicted",
+            Self::CenterSecured=>"center_secured",
         }
     }
 }
@@ -79,6 +110,16 @@ impl Policy {
             Self::SupplyRaid => "supply_raid",
             Self::Adaptive => "adaptive",
         }
+    }
+}
+
+/// The standard opponent is the V0.4.2 reference baseline. Counter is
+/// a tougher, responsive adversary evaluated as a separate stress test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpponentPolicy { Standard, Counter }
+impl OpponentPolicy {
+    pub fn label(self)->&'static str {
+        match self {Self::Standard=>"standard",Self::Counter=>"counter"}
     }
 }
 
@@ -128,6 +169,7 @@ pub struct TeamStats {
 pub struct Battle {
     pub scenario: Scenario,
     pub policy: Policy,
+    pub opponent: OpponentPolicy,
     pub rules: CombatRules,
     pub seed: u64,
     /// Which physical side the smaller/policy-controlled team occupies.
@@ -142,9 +184,15 @@ pub struct Battle {
     pub stats: [TeamStats; 2],
     pub objective_owner: Option<u8>,
     pub winner: Option<u8>,
+    pub victory_reason: Option<VictoryReason>,
     pub ended: bool,
     /// Three turns physically occupying an undefended enemy depot wins.
     depot_occupation: [u8; 2],
+    /// Physical objective progress. All counts are reset on contest/loss.
+    pub pass_hold_rounds: u16,
+    pub breakthrough_rounds: u8,
+    pub interdiction_rounds: [u8; 2],
+    pub center_hold_rounds: [u8; 2],
     /// Tracks exact conservation of provision tokens, even after combat deaths.
     /// Supplies may be destroyed with a destroyed army, but never materialize.
     pub destroyed_provisions: [u32; 2],
@@ -201,7 +249,7 @@ impl Battle {
         let main_small=match scenario {
             Scenario::MountainPass=>PASS.0,
             Scenario::SupplyCorridor=>if swap {8} else {6},
-            Scenario::OpenField=>if swap {9} else {5},
+            Scenario::OpenField | Scenario::OutnumberedField=>if swap {9} else {5},
         };
         let main_large=if swap {4} else {10};
         let offset=(hash(seed,19)%3) as i16-1;
@@ -215,7 +263,8 @@ impl Battle {
                 order:Order::Hold,destination:pos,routing:false }
         };
         Self {
-            scenario,policy,rules,seed,swap,round:0,map,
+            scenario,policy,opponent:OpponentPolicy::Standard,rules,
+            seed,swap,round:0,map,
             units:[
                 make_unit(0,Role::Main,(main_small,small_y),split_small),
                 make_unit(0,Role::Scout,(left,1),small_troops-split_small),
@@ -226,10 +275,19 @@ impl Battle {
             reserve:[START_RESERVE;2],
             stats:[TeamStats::default();2],
             objective_owner:None,
-            winner:None,ended:false,
+            winner:None,victory_reason:None,ended:false,
             depot_occupation:[0,0],
+            pass_hold_rounds:0,
+            breakthrough_rounds:0,
+            interdiction_rounds:[0,0],
+            center_hold_rounds:[0,0],
             destroyed_provisions:[0,0],
         }
+    }
+
+    pub fn with_opponent(mut self, opponent:OpponentPolicy)->Self {
+        self.opponent=opponent;
+        self
     }
 
     pub fn terrain_at(&self,p:(i16,i16))->Terrain {
@@ -244,6 +302,15 @@ impl Battle {
     pub fn initial_troops(&self,team:usize)->u32 {
         if self.scenario==Scenario::OpenField {500}
         else if team==0 {400} else {650}
+    }
+
+    fn breakthrough_target(&self)->(i16,i16) {
+        if self.swap {(10,4)} else {(4,4)}
+    }
+
+    fn corridor_target(&self)->(i16,i16) {
+        let depot=self.depots[1];
+        if depot.0>PASS.0 {(10,4)} else {(4,4)}
     }
 
     pub fn supplies_balanced(&self,team:usize)->bool {
@@ -301,15 +368,16 @@ impl Battle {
 
     fn scout_raid_destination(&self,idx:usize)->(Order,(i16,i16)) {
         let u=self.units[idx];
-        let depot=self.depots[1];
-        // A real flank: first travel on the northern edge, then turn onto
-        // the enemy supply depot. May be intercepted by a garrison.
-        if u.pos.1!=1 {
-            (Order::Move,(u.pos.0,1))
-        } else if u.pos.0!=depot.0 {
-            (Order::Move,(depot.0,1))
+        let cut=self.corridor_target();
+        // Flank along the northern rim, THEN approach the road from behind
+        // the opponent's main body. A raid is not a magical command:
+        // the scout must physically reach the vulnerable road square.
+        if u.pos.0!=cut.0 {
+            (Order::Move,(cut.0,1))
+        } else if u.pos.1!=cut.1 {
+            (Order::Attack,cut)
         } else {
-            (Order::Attack,depot)
+            (Order::Hold,cut)
         }
     }
 
@@ -326,9 +394,11 @@ impl Battle {
         let style=match self.policy {
             Policy::Adaptive => if self.scenario==Scenario::MountainPass {
                 Policy::PassDefense
-            } else if self.scenario==Scenario::SupplyCorridor {
+            } else {
+                // Road and central-point objectives reward staying on an
+                // objective while the scout threatens enemy depth.
                 Policy::SupplyRaid
-            } else {Policy::DirectRush},
+            },
             other=>other,
         };
         match style {
@@ -342,8 +412,14 @@ impl Battle {
                 } else {
                     self.assign(0,Order::Attack,PASS);
                 }
-                let x=if self.swap {9} else {5};
-                let defensive=(x,3);
+                // Defense-in-depth: protect the *actual* breakthrough tile.
+                // A rear guard two tiles away cannot contest occupation.
+                let defensive=if self.scenario==Scenario::MountainPass {
+                    self.breakthrough_target()
+                } else {
+                    let x=if self.swap {9} else {5};
+                    (x,3)
+                };
                 if small_scout.pos==defensive {
                     self.assign(1,Order::Hold,defensive);
                 } else {
@@ -366,27 +442,67 @@ impl Battle {
             // preference. This is not an omniscient win condition.
             if small_main.state.morale<42 || small_main.state.fatigue>88 {
                 self.assign(0,Order::Retreat,small_depot);
-            } else if self.scenario!=Scenario::OpenField &&
+            } else if self.scenario==Scenario::SupplyCorridor &&
+                small_main.pos!=PASS && !self.physical_interdiction(0) &&
                 (big_main.state.provisions==0 || big_main.troops<small_main.troops/2) {
+                // Never abandon a held road interdiction merely because
+                // the isolated enemy is running low on provisions.
                 self.assign(0,Order::Attack,big_main.pos);
             }
         }
 
-        // Fixed baseline opponent: move its main body toward the central
-        // fight; its smaller detachment defends the depot from nearby raiders.
-        // It obeys exactly the same supply, combat, movement and morale rules.
-        if distance(big_main.pos,small_main.pos)<=1 {
+        // Both adversaries obey identical mechanics. Counter observes the
+        // public objective and reacts faster; it gets no hidden modifiers.
+        let counter=self.opponent==OpponentPolicy::Counter;
+        let flank_after=if counter {2} else {8};
+        let beyond_pass=if self.swap {big_main.pos.0>=8}
+            else {big_main.pos.0<=6};
+        if self.scenario==Scenario::MountainPass && beyond_pass {
+            // Once beyond the defenders, stop chasing them from behind.
+            // Reaching the objective is more important than endless contact.
+            self.assign(2,Order::Attack,self.breakthrough_target());
+        } else if self.scenario==Scenario::MountainPass &&
+            self.pass_hold_rounds>=flank_after &&
+            ((self.swap && big_main.pos.0<=7) ||
+             (!self.swap && big_main.pos.0>=7)) {
+            // Counter tries the southern flank, Standard the northern one.
+            let flank=match (self.swap,counter) {
+                (false,false)=>(5,1),(true,false)=>(9,1),
+                (false,true)=>(5,7),(true,true)=>(9,7),
+            };
+            self.assign(2,Order::Attack,flank);
+        } else if distance(big_main.pos,small_main.pos)<=1 && small_main.troops>0 {
             self.assign(2,Order::Attack,small_main.pos);
         } else if self.scenario==Scenario::MountainPass {
+            self.assign(2,Order::Attack,self.breakthrough_target());
+        } else if self.scenario==Scenario::SupplyCorridor {
+            // Physical response to road interdiction, not an omniscient
+            // change to the defender's damage, food or morale.
+            let raider=self.units[1];
+            let response_range=if counter {4} else {1};
+            if raider.troops>0 &&
+                distance(raider.pos,self.corridor_target())<=response_range {
+                self.assign(2,Order::Attack,raider.pos);
+            } else {
+                self.assign(2,Order::Attack,small_main.pos);
+            }
+        } else if counter {
             self.assign(2,Order::Attack,PASS);
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
+        let guard_radius=if counter {7} else {3};
         let intruder=[small_main,small_scout].into_iter()
-            .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=3)
+            .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=guard_radius)
             .min_by_key(|u|distance(u.pos,big_depot));
-        if let Some(u)=intruder {
+        if self.scenario==Scenario::MountainPass && counter &&
+            self.pass_hold_rounds>=2 && small_scout.troops>0 {
+            self.assign(3,Order::Attack,small_scout.pos);
+        } else if let Some(u)=intruder {
             self.assign(3,Order::Attack,u.pos);
+        } else if counter &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            self.assign(3,Order::Attack,PASS);
         } else if distance(big_scout.pos,big_depot)>1 {
             self.assign(3,Order::Move,big_depot);
         } else {
@@ -396,6 +512,9 @@ impl Battle {
 
     fn movement(&mut self)->[bool;4] {
         let mut moved=[false;4];
+        // Use pre-movement occupancy, not loop order. Two opposing armies
+        // cannot phase through one another in the same tactical round.
+        let before=self.units;
         for (i,u) in self.units.iter_mut().enumerate() {
             if u.troops==0 {continue;}
             if u.order==Order::Hold {
@@ -406,6 +525,10 @@ impl Battle {
                 for _ in 0..steps {
                     let next=Self::move_one(u.pos,u.destination);
                     if next==u.pos {break;}
+                    if before.iter().any(|enemy|enemy.side!=u.side
+                        && enemy.troops>0 && enemy.pos==next) {
+                        break; // enemy line blocks entry; combat is adjacent
+                    }
                     u.pos=clamp_pos(next);
                     moved[i]=true;
                 }
@@ -578,7 +701,30 @@ impl Battle {
         }
     }
 
+    /// A supply raid must be a living unit physically on the narrow
+    /// depot-to-army corridor. Merely commanding RAID or being out of range
+    /// cannot satisfy the five-round interdiction objective.
+    fn physical_interdiction(&self,side:usize)->bool {
+        let defender=1-side;
+        let enemy=&self.units[defender*2];
+        if enemy.troops==0 {return false;}
+        let depot=self.depots[defender];
+        self.units.iter().any(|u|u.side as usize==side &&
+            u.troops>=15 && (u.pos.1-4).abs()<=1 &&
+            (if depot.0<enemy.pos.0 {
+                u.pos.0>depot.0 && u.pos.0<enemy.pos.0
+            } else {
+                u.pos.0<depot.0 && u.pos.0>enemy.pos.0
+            }) &&
+            // A present enemy screen actually contests the cut. The
+            // raider cannot merely stand under fire to collect a free win.
+            !self.units.iter().any(|guard|guard.side!=u.side &&
+                guard.troops>0 && distance(guard.pos,u.pos)<=1))
+    }
+
     fn resolve_objectives(&mut self) {
+        // Mutual depot capture is available in EVERY scenario to both teams.
+        // Occupation must persist for three rounds without a nearby defender.
         for side in 0..2usize {
             let attacker=side as u8;
             let defender=(1-side) as u8;
@@ -590,7 +736,7 @@ impl Battle {
             if occupying && !defended {
                 self.depot_occupation[side]=self.depot_occupation[side]
                     .saturating_add(1);
-                if self.depot_occupation[side]>=2 {
+                if self.depot_occupation[side]>=3 {
                     self.depot_lost[1-side]=true;
                 }
             } else {self.depot_occupation[side]=0;}
@@ -605,19 +751,113 @@ impl Battle {
             self.stats[side as usize].objective_rounds+=1;
         }
 
-        let remaining=[self.remaining(0),self.remaining(1)];
-        if remaining[0]<40 && remaining[1]>=40 {
-            self.winner=Some(1);
-        } else if remaining[1]<40 && remaining[0]>=40 {
-            self.winner=Some(0);
-        } else if remaining[0]<40 && remaining[1]<40 {
-            self.winner=None;self.ended=true;
-        } else if self.depot_occupation[0]>=3 {
-            self.winner=Some(0);
-        } else if self.depot_occupation[1]>=3 {
-            self.winner=Some(1);
+        // Time-based military objectives require continuous PHYSICAL control
+        // and have the same terrain, clocks and criteria in every ablation.
+        let mut mission=[false;2];
+        let mut mission_reason=[None;2];
+        match self.scenario {
+            Scenario::MountainPass=>{
+                // Team 0 explicitly defends the pass for a fixed siege period.
+                // Team 1 tries to cross and occupy a real tile beyond it.
+                let defending=self.units.iter().any(|u|u.side==0 &&
+                    u.troops>=40 && u.pos==PASS && u.order==Order::Hold);
+                let occupying_pass=self.units.iter().any(|u|u.side==1 &&
+                    u.troops>0 && u.pos==PASS);
+                if defending && !occupying_pass {
+                    self.pass_hold_rounds=self.pass_hold_rounds.saturating_add(1);
+                } else {self.pass_hold_rounds=0;}
+
+                let breakthrough=self.breakthrough_target();
+                let attacker=self.units.iter().any(|u|u.side==1 &&
+                    u.troops>=40 && u.pos==breakthrough && u.order==Order::Attack);
+                let defended=self.units.iter().any(|u|u.side==0 &&
+                    u.troops>0 && distance(u.pos,breakthrough)<=1);
+                if attacker && !defended {
+                    self.breakthrough_rounds=self.breakthrough_rounds
+                        .saturating_add(1);
+                } else {self.breakthrough_rounds=0;}
+                if self.pass_hold_rounds>=MOUNTAIN_DEFEND_ROUNDS {
+                    mission[0]=true;
+                    mission_reason[0]=Some(VictoryReason::PassHeld);
+                }
+                if self.breakthrough_rounds>=BREAKTHROUGH_ROUNDS {
+                    mission[1]=true;
+                    mission_reason[1]=Some(VictoryReason::Breakthrough);
+                }
+            }
+            Scenario::SupplyCorridor=>{
+                // No rule-mask check: the mission is physical road denial,
+                // independent of whether starvation penalties are enabled.
+                for side in 0..2 {
+                    let enemy_main=if side==0 {2}else{0};
+                    let blocked=self.physical_interdiction(side) &&
+                        !self.connected(enemy_main);
+                    self.interdiction_rounds[side]=if blocked {
+                        self.interdiction_rounds[side].saturating_add(1)
+                    } else {0};
+                    if self.interdiction_rounds[side]>=INTERDICTION_ROUNDS {
+                        mission[side]=true;
+                        mission_reason[side]=Some(VictoryReason::SupplyInterdicted);
+                    }
+                }
+            }
+            Scenario::OpenField | Scenario::OutnumberedField=>{
+                // Both sides race to exclusively occupy the center. Existing
+                // front lines are contested; attackers cannot win by merely
+                // walking through an adjacent enemy.
+                for side in 0..2 {
+                    self.center_hold_rounds[side]=if self.objective_owner==
+                        Some(side as u8) {
+                        self.center_hold_rounds[side].saturating_add(1)
+                    } else {0};
+                    if self.center_hold_rounds[side]>=OPEN_CONTROL_ROUNDS {
+                        mission[side]=true;
+                        mission_reason[side]=Some(VictoryReason::CenterSecured);
+                    }
+                }
+            }
         }
-        if self.winner.is_some() || self.round>=MAX_ROUNDS {
+
+        let remaining=[self.remaining(0),self.remaining(1)];
+        let defeated=[remaining[0]<40,remaining[1]<40];
+        if defeated[0] && defeated[1] {
+            self.winner=None;
+            self.victory_reason=None;
+            self.ended=true;
+        } else if defeated[0] || defeated[1] {
+            let winner=if defeated[0] {1} else {0};
+            self.winner=Some(winner);
+            self.victory_reason=Some(VictoryReason::Annihilation);
+            self.ended=true;
+        } else {
+            for side in 0..2 {
+                if self.depot_occupation[side]>=3 {
+                    mission[side]=true;
+                    mission_reason[side]=Some(VictoryReason::DepotCapture);
+                }
+            }
+            match mission {
+                [true,false]=>{
+                    self.winner=Some(0);
+                    self.victory_reason=mission_reason[0];
+                    self.ended=true;
+                }
+                [false,true]=>{
+                    self.winner=Some(1);
+                    self.victory_reason=mission_reason[1];
+                    self.ended=true;
+                }
+                [true,true]=>{
+                    // Mutually achieved objectives are a genuine draw:
+                    // no hidden priority for the first team in the array.
+                    self.winner=None;
+                    self.victory_reason=None;
+                    self.ended=true;
+                }
+                _=>{}
+            }
+        }
+        if self.round>=MAX_ROUNDS {
             self.ended=true;
         }
     }
@@ -783,7 +1023,195 @@ mod tests {
         a.resolve_objectives();
         assert!(!a.depot_lost[1]);
         a.resolve_objectives();
+        assert!(!a.depot_lost[1]);
+        a.resolve_objectives();
         assert!(a.depot_lost[1]);
+        assert_eq!(a.winner,Some(0));
+        assert_eq!(a.victory_reason,Some(VictoryReason::DepotCapture));
+    }
+
+    #[test]
+    fn mountain_victory_requires_actual_held_pass_for_full_duration() {
+        let mut battle=Battle::new(12,Scenario::MountainPass,
+            Policy::PassDefense,false,CombatRules::FULL);
+        assert_eq!(battle.units[0].pos,PASS);
+        for _ in 0..(MOUNTAIN_DEFEND_ROUNDS-1) {
+            battle.resolve_objectives();
+            assert!(battle.winner.is_none());
+        }
+        // The attacker physically occupies the tile, so the streak resets.
+        battle.units[2].pos=PASS;
+        battle.resolve_objectives();
+        assert_eq!(battle.pass_hold_rounds,0);
+        assert!(battle.winner.is_none());
+        battle.units[2].pos=(10,4);
+        for _ in 0..MOUNTAIN_DEFEND_ROUNDS {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.winner,Some(0));
+        assert_eq!(battle.victory_reason,Some(VictoryReason::PassHeld));
+    }
+
+    #[test]
+    fn breakthrough_requires_uncontested_occupation_beyond_pass() {
+        for swap in [false,true] {
+            let mut battle=Battle::new(41,Scenario::MountainPass,
+                Policy::DirectRush,swap,CombatRules::FULL);
+            let goal=battle.breakthrough_target();
+            battle.units[2].pos=goal;
+            battle.units[2].order=Order::Attack;
+            // Explicit defender at the goal blocks the breakthrough.
+            battle.units[0].pos=goal;
+            battle.resolve_objectives();
+            assert_eq!(battle.breakthrough_rounds,0);
+            battle.units[0].pos=battle.depots[0];
+            for _ in 0..(BREAKTHROUGH_ROUNDS-1) {
+                battle.resolve_objectives();
+                assert!(battle.winner.is_none());
+            }
+            battle.resolve_objectives();
+            assert_eq!(battle.winner,Some(1));
+            assert_eq!(battle.victory_reason,Some(VictoryReason::Breakthrough));
+        }
+    }
+
+    #[test]
+    fn road_denial_requires_living_unit_behind_enemy_for_five_rounds() {
+        for mask in [0,15] {
+            let mut battle=Battle::new(21,Scenario::SupplyCorridor,
+                Policy::SupplyRaid,false,CombatRules::from_mask(mask));
+            // Merely commanding ATTACK cannot disrupt logistics.
+            battle.units[1].order=Order::Attack;
+            battle.resolve_objectives();
+            assert_eq!(battle.interdiction_rounds[0],0);
+            battle.units[2].pos=PASS; // enemy main has advanced eastward
+            battle.units[1].pos=battle.corridor_target();
+            assert!(!battle.connected(2));
+            for _ in 0..(INTERDICTION_ROUNDS-1) {
+                battle.resolve_objectives();
+                assert!(battle.winner.is_none());
+            }
+            battle.resolve_objectives();
+            assert_eq!(battle.winner,Some(0));
+            assert_eq!(battle.victory_reason,
+                Some(VictoryReason::SupplyInterdicted));
+        }
+    }
+
+    #[test]
+    fn enemy_screen_contests_road_interdiction_instead_of_awarding_free_win() {
+        let mut battle=Battle::new(42,Scenario::SupplyCorridor,
+            Policy::SupplyRaid,false,CombatRules::FULL);
+        battle.units[2].pos=PASS; // enemy main advancing from depot
+        battle.units[1].pos=battle.corridor_target();
+        battle.units[3].pos=(11,4); // physical counter-screen
+        for _ in 0..INTERDICTION_ROUNDS+1 {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.interdiction_rounds[0],0);
+        assert!(battle.winner.is_none());
+        battle.units[3].pos=(13,4); // screen withdraws
+        for _ in 0..INTERDICTION_ROUNDS {
+            battle.resolve_objectives();
+        }
+        assert_eq!(battle.winner,Some(0));
+        assert_eq!(battle.victory_reason,
+            Some(VictoryReason::SupplyInterdicted));
+    }
+
+    #[test]
+    fn center_control_requires_exclusive_physical_presence() {
+        for scenario in [Scenario::OpenField,Scenario::OutnumberedField] {
+            let mut battle=Battle::new(56,scenario,
+                Policy::Adaptive,false,CombatRules::FULL);
+            battle.units[0].pos=PASS;
+            battle.units[2].pos=PASS; // contested
+            battle.resolve_objectives();
+            assert_eq!(battle.center_hold_rounds,[0,0]);
+            battle.units[2].pos=(10,4);
+            battle.units[3].pos=(11,3);
+            for _ in 0..OPEN_CONTROL_ROUNDS {
+                battle.resolve_objectives();
+            }
+            assert_eq!(battle.winner,Some(0));
+            assert_eq!(battle.victory_reason,
+                Some(VictoryReason::CenterSecured));
+        }
+    }
+
+    #[test]
+    fn a_front_line_blocks_enemy_phasing_even_during_simultaneous_movement() {
+        let mut battle=Battle::new(86,Scenario::OpenField,
+            Policy::DirectRush,false,CombatRules::FULL);
+        battle.units[0].pos=(7,4);
+        battle.units[0].destination=(9,4);
+        battle.units[0].order=Order::Attack;
+        battle.units[2].pos=(8,4);
+        battle.units[2].destination=(7,4);
+        battle.units[2].order=Order::Attack;
+        battle.movement();
+        assert_eq!(battle.units[0].pos,(7,4));
+        assert_eq!(battle.units[2].pos,(8,4));
+    }
+
+    #[test]
+    fn defense_orders_guard_real_breakthrough_objective() {
+        for swap in [false,true] {
+            let mut battle=Battle::new(1000,Scenario::MountainPass,
+                Policy::PassDefense,swap,CombatRules::FULL);
+            battle.plan();
+            assert_eq!(battle.units[1].destination,
+                battle.breakthrough_target());
+            assert_eq!(battle.units[0].order,Order::Hold);
+        }
+    }
+
+    #[test]
+    fn adaptive_keeps_pass_held_when_supply_is_being_interdicted() {
+        let mut battle=Battle::new(1000,Scenario::SupplyCorridor,
+            Policy::Adaptive,false,CombatRules::FULL);
+        battle.units[0].pos=PASS;
+        battle.units[2].pos=(5,4);
+        battle.units[2].state.provisions=0;
+        battle.destroyed_provisions[1]+=6;
+        battle.plan();
+        assert_eq!(battle.units[0].order,Order::Hold);
+        assert!(battle.audit());
+    }
+
+    #[test]
+    fn counter_opponent_keeps_identical_starting_world_and_replays_exactly() {
+        for scenario in Scenario::ALL {
+            for swap in [false,true] {
+                let standard=Battle::new(123,scenario,
+                    Policy::Adaptive,swap,CombatRules::FULL);
+                let counter=standard.clone().with_opponent(OpponentPolicy::Counter);
+                assert_eq!(standard.units,counter.units);
+                assert_eq!(standard.map,counter.map);
+                assert_eq!(standard.reserve,counter.reserve);
+                assert_eq!(standard.depots,counter.depots);
+                assert_ne!(standard.opponent,counter.opponent);
+                let mut a=counter.clone();
+                let mut b=counter;
+                for _ in 0..MAX_ROUNDS {
+                    a.step();b.step();
+                    assert_eq!(a,b);
+                    assert!(a.audit());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn numerical_control_is_distinct_from_equal_force_control() {
+        let equal=Battle::new(77,Scenario::OpenField,
+            Policy::Adaptive,false,CombatRules::FULL);
+        let unequal=Battle::new(77,Scenario::OutnumberedField,
+            Policy::Adaptive,false,CombatRules::FULL);
+        assert_eq!((equal.initial_troops(0),equal.initial_troops(1)),
+            (500,500));
+        assert_eq!((unequal.initial_troops(0),unequal.initial_troops(1)),
+            (400,650));
     }
 
     #[test]
