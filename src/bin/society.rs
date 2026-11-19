@@ -135,7 +135,8 @@ async fn main() {
     let mut settlement_observer = SettlementObserver::default();
     // Begin paused: the player can understand the board before agents die.
     let mut running = false;
-    let mut speed = 2_usize;
+    // Formation needs hundreds of ticks; default to a watchable simulation rate.
+    let mut speed = 8_usize;
     let mut accumulator = 0.0_f32;
     let mut zoom = 1.0_f32;
     let mut center = vec2(64.0, 64.0);
@@ -543,7 +544,7 @@ async fn main() {
         draw_rectangle(hint_x - 4.0, hint_y - 16.0, hint_width, hint_bg_h,
             Color::from_rgba(29, 49, 66, 255));
         let instruction = if world.squad.is_none() {
-            "1. TAP THE MAP TO RECRUIT 8 PEOPLE"
+            "PLAY = WATCH. TAP MAP = RECRUIT ARMY"
         } else if pending == Some(Pending::Recruit) {
             "TAP NEAR PEOPLE TO RECRUIT AGAIN"
         } else if pending == Some(Pending::Move) {
@@ -598,9 +599,17 @@ async fn main() {
                     else { living.iter().map(|a| a.energy as u32).sum::<u32>()
                         / living.len() as u32 }
                 } else { 0 };
-                draw_text(&format!("Hamlets {}   Camps {}   Army energy {}",
-                    settlement_observer.stable_count(), world.camps.len(), avg_energy),
-                    17.0, panel_top + 39.0, 13.0, LIGHTGRAY);
+                let description = if world.squad.is_some() {
+                    format!("Hold {}/20  Soldiers {}  Avg energy {}",
+                        held_ticks, world.soldier_count(), avg_energy)
+                } else {
+                    format!("Hamlets {}   Camps {}   Food stored {}",
+                        settlement_observer.stable_count(), world.camps.len(),
+                        world.camps.iter().map(|c|c.supplies as u32).sum::<u32>())
+                };
+                draw_text(&description, 17.0, panel_top + 39.0,
+                    ((sw-34.0)/(description.len() as f32*0.57)).clamp(11.0,14.0),
+                    LIGHTGRAY);
                 if panel_h >= 58.0 {
                     let bar_y = panel_top + 46.0;
                     draw_rectangle(17.0, bar_y, sw - 34.0, 7.0,
