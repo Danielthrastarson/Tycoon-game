@@ -384,7 +384,7 @@ async fn main() {
     let mut previous_positions:[(i16,i16);4]=std::array::from_fn(|i|
         battle.units[i].pos);
     let mut chosen=0usize;
-    let mut mode=Order::Move;
+    let mut mode=Order::Hold;
     let mut running=false;
     let mut fast=false;
     let mut accumulator=0_f32;
@@ -568,23 +568,26 @@ async fn main() {
                     battle.stats[0].combat_lost,battle.stats[1].combat_lost,
                     battle.stats[0].attrition_lost,battle.stats[1].attrition_lost,
                 ];
+                let troops_before:[u32;4]=std::array::from_fn(|i|
+                    battle.units[i].troops);
                 battle.step_player();
+                // Use ACTUAL squad casualties, not a team-wide loss
+                // displayed above the wrong unit. The event is explanatory.
+                for i in 0..4 {
+                    let losses=troops_before[i].saturating_sub(battle.units[i].troops);
+                    if losses==0 {continue;}
+                    let u=battle.units[i];
+                    floaters.push(Floater{
+                        at:vec2(u.pos.0 as f32,u.pos.1 as f32),
+                        message:format!("-{} {}",losses,
+                            if i<2 {"BLUE"}else{"ENEMY"}),
+                        born:get_time(),
+                        color:if i<2 {ORANGE}else{GREEN},
+                    });
+                }
                 if battle.stats[0].combat_lost>losses_before[0] {
                     let loss=battle.stats[0].combat_lost-losses_before[0];
-                    floaters.push(Floater{
-                        at:vec2(battle.units[0].pos.0 as f32,
-                            battle.units[0].pos.1 as f32),
-                        message:format!("-{} IN BATTLE",loss),born:get_time(),color:ORANGE
-                    });
-                    message=format!("Your army lost {} soldiers in combat.",loss);
-                }
-                if battle.stats[1].combat_lost>losses_before[1] {
-                    let loss=battle.stats[1].combat_lost-losses_before[1];
-                    floaters.push(Floater{
-                        at:vec2(battle.units[2].pos.0 as f32,
-                            battle.units[2].pos.1 as f32),
-                        message:format!("-{} ENEMY",loss),born:get_time(),color:GREEN
-                    });
+                    message=format!("Your squads lost {} soldiers in combat.",loss);
                 }
                 if battle.stats[0].attrition_lost>losses_before[2] {
                     message="Your unsupplied soldiers are losing strength!".into();
@@ -600,7 +603,9 @@ async fn main() {
             }
         }else{accumulator=0.;}
         floaters.retain(|f|get_time()-f.born<1.5);
-        let alpha=if battle.ended {1.}else{(accumulator/turn_duration).clamp(0.,1.)};
+        // Pausing shows actual authoritative positions immediately.
+        let alpha=if battle.ended || !running {1.}
+            else{(accumulator/turn_duration).clamp(0.,1.)};
         let visual_positions:[Vec2;4]=std::array::from_fn(|i|
             interpolated(previous_positions[i],battle.units[i].pos,alpha));
         clear_background(BG);
