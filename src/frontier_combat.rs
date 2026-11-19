@@ -14,7 +14,9 @@ pub const FIELD_WIDTH: i16 = 15;
 pub const FIELD_HEIGHT: i16 = 9;
 pub const MAX_ROUNDS: u16 = 80;
 const CELLS: usize = FIELD_WIDTH as usize * FIELD_HEIGHT as usize;
-const START_RESERVE: u16 = 96;
+// Enough for an entire 80-round battle when lines remain connected.
+// Thus losing supply measures interdiction, not a universal stockpile timer.
+const START_RESERVE: u16 = 400;
 const START_PROVISIONS: u8 = 6;
 const PASS: (i16, i16) = (7, 4);
 
@@ -193,9 +195,17 @@ impl Battle {
         let depots=if swap {[(13,4),(1,4)]} else {[(1,4),(13,4)]};
         let left=if swap {11} else {3};
         let right=if swap {3} else {11};
-        let main_small=if swap {9} else {5};
-        let main_large=if swap {5} else {9};
+        // Scenario A is explicitly a defense: the 400-troop army begins
+        // occupying the pass and must decide whether to hold or abandon it.
+        // Scenario B starts the smaller army nearer the contested road.
+        let main_small=match scenario {
+            Scenario::MountainPass=>PASS.0,
+            Scenario::SupplyCorridor=>if swap {8} else {6},
+            Scenario::OpenField=>if swap {9} else {5},
+        };
+        let main_large=if swap {4} else {10};
         let offset=(hash(seed,19)%3) as i16-1;
+        let small_y=if scenario==Scenario::MountainPass {4}else{4+offset};
         let small_troops=if scenario==Scenario::OpenField {500} else {400};
         let large_troops=if scenario==Scenario::OpenField {500} else {650};
         let split_small=small_troops*3/4;
@@ -207,7 +217,7 @@ impl Battle {
         Self {
             scenario,policy,rules,seed,swap,round:0,map,
             units:[
-                make_unit(0,Role::Main,(main_small,4+offset),split_small),
+                make_unit(0,Role::Main,(main_small,small_y),split_small),
                 make_unit(0,Role::Scout,(left,1),small_troops-split_small),
                 make_unit(1,Role::Main,(main_large,4-offset),split_large),
                 make_unit(1,Role::Scout,(right,3),large_troops-split_large),
@@ -645,6 +655,27 @@ impl Battle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn starting_conditions_fit_the_tactical_hypotheses() {
+        for swapped in [false,true] {
+            for seed in [1,7,1003] {
+                let mountain=Battle::new(seed,Scenario::MountainPass,
+                    Policy::PassDefense,swapped,CombatRules::FULL);
+                assert_eq!(mountain.units[0].pos,PASS);
+                assert_eq!(mountain.terrain_at(PASS),Terrain::Mountain);
+                assert_eq!(mountain.initial_troops(0),400);
+                assert_eq!(mountain.initial_troops(1),650);
+                let open=Battle::new(seed,Scenario::OpenField,
+                    Policy::Adaptive,swapped,CombatRules::FULL);
+                assert_eq!(open.initial_troops(0),500);
+                assert_eq!(open.initial_troops(1),500);
+            }
+        }
+        assert!(START_RESERVE>=MAX_ROUNDS*2,
+            "two continuously supplied units must not automatically
+             exhaust their depot before the match timer");
+    }
 
     #[test]
     fn sixteen_masks_are_distinct_and_reversible() {
