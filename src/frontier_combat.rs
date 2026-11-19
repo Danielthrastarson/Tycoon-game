@@ -113,6 +113,16 @@ impl Policy {
     }
 }
 
+/// The standard opponent is the V0.4.2 reference baseline. Counter is
+/// a tougher, responsive adversary evaluated as a separate stress test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpponentPolicy { Standard, Counter }
+impl OpponentPolicy {
+    pub fn label(self)->&'static str {
+        match self {Self::Standard=>"standard",Self::Counter=>"counter"}
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role { Main, Scout }
 
@@ -159,6 +169,7 @@ pub struct TeamStats {
 pub struct Battle {
     pub scenario: Scenario,
     pub policy: Policy,
+    pub opponent: OpponentPolicy,
     pub rules: CombatRules,
     pub seed: u64,
     /// Which physical side the smaller/policy-controlled team occupies.
@@ -252,7 +263,8 @@ impl Battle {
                 order:Order::Hold,destination:pos,routing:false }
         };
         Self {
-            scenario,policy,rules,seed,swap,round:0,map,
+            scenario,policy,opponent:OpponentPolicy::Standard,rules,
+            seed,swap,round:0,map,
             units:[
                 make_unit(0,Role::Main,(main_small,small_y),split_small),
                 make_unit(0,Role::Scout,(left,1),small_troops-split_small),
@@ -271,6 +283,11 @@ impl Battle {
             center_hold_rounds:[0,0],
             destroyed_provisions:[0,0],
         }
+    }
+
+    pub fn with_opponent(mut self, opponent:OpponentPolicy)->Self {
+        self.opponent=opponent;
+        self
     }
 
     pub fn terrain_at(&self,p:(i16,i16))->Terrain {
@@ -423,16 +440,19 @@ impl Battle {
             }
         }
 
-        // Fixed baseline opponent: move its main body toward the central
-        // fight; its smaller detachment defends the depot from nearby raiders.
-        // It obeys exactly the same supply, combat, movement and morale rules.
+        // Both adversaries obey identical mechanics. Counter observes the
+        // public objective and reacts faster; it gets no hidden modifiers.
+        let counter=self.opponent==OpponentPolicy::Counter;
+        let flank_after=if counter {2} else {8};
         if self.scenario==Scenario::MountainPass &&
-            self.pass_hold_rounds>=8 &&
+            self.pass_hold_rounds>=flank_after &&
             ((self.swap && big_main.pos.0<=7) ||
              (!self.swap && big_main.pos.0>=7)) {
-            // Visible, lawful flank when direct assault has failed. Moving
-            // around the defender is a real 2D path, not a damage bonus.
-            let flank=if self.swap {(9,1)} else {(5,1)};
+            // Counter tries the southern flank, Standard the northern one.
+            let flank=match (self.swap,counter) {
+                (false,false)=>(5,1),(true,false)=>(9,1),
+                (false,true)=>(5,7),(true,true)=>(9,7),
+            };
             self.assign(2,Order::Attack,flank);
         } else if distance(big_main.pos,small_main.pos)<=1 && small_main.troops>0 {
             self.assign(2,Order::Attack,small_main.pos);
@@ -442,19 +462,30 @@ impl Battle {
             // Physical response to road interdiction, not an omniscient
             // change to the defender's damage, food or morale.
             let raider=self.units[1];
-            if raider.troops>0 && distance(raider.pos,self.corridor_target())<=1 {
+            let response_range=if counter {4} else {1};
+            if raider.troops>0 &&
+                distance(raider.pos,self.corridor_target())<=response_range {
                 self.assign(2,Order::Attack,raider.pos);
             } else {
                 self.assign(2,Order::Attack,small_main.pos);
             }
+        } else if counter {
+            self.assign(2,Order::Attack,PASS);
         } else {
             self.assign(2,Order::Attack,small_main.pos);
         }
+        let guard_radius=if counter {7} else {3};
         let intruder=[small_main,small_scout].into_iter()
-            .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=3)
+            .filter(|u|u.troops>0 && distance(u.pos,big_depot)<=guard_radius)
             .min_by_key(|u|distance(u.pos,big_depot));
-        if let Some(u)=intruder {
+        if self.scenario==Scenario::MountainPass && counter &&
+            self.pass_hold_rounds>=2 && small_scout.troops>0 {
+            self.assign(3,Order::Attack,small_scout.pos);
+        } else if let Some(u)=intruder {
             self.assign(3,Order::Attack,u.pos);
+        } else if counter &&
+            matches!(self.scenario,Scenario::OpenField|Scenario::OutnumberedField) {
+            self.assign(3,Order::Attack,PASS);
         } else if distance(big_scout.pos,big_depot)>1 {
             self.assign(3,Order::Move,big_depot);
         } else {
@@ -1078,6 +1109,29 @@ mod tests {
         battle.movement();
         assert_eq!(battle.units[0].pos,(7,4));
         assert_eq!(battle.units[2].pos,(8,4));
+    }
+
+    #[test]
+    fn counter_opponent_keeps_identical_starting_world_and_replays_exactly() {
+        for scenario in Scenario::ALL {
+            for swap in [false,true] {
+                let standard=Battle::new(123,scenario,
+                    Policy::Adaptive,swap,CombatRules::FULL);
+                let counter=standard.clone().with_opponent(OpponentPolicy::Counter);
+                assert_eq!(standard.units,counter.units);
+                assert_eq!(standard.map,counter.map);
+                assert_eq!(standard.reserve,counter.reserve);
+                assert_eq!(standard.depots,counter.depots);
+                assert_ne!(standard.opponent,counter.opponent);
+                let mut a=counter.clone();
+                let mut b=counter;
+                for _ in 0..MAX_ROUNDS {
+                    a.step();b.step();
+                    assert_eq!(a,b);
+                    assert!(a.audit());
+                }
+            }
+        }
     }
 
     #[test]
