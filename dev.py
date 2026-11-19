@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phone Codespaces preview: rebuild Invention Lab, serve / on port 8000."""
+"""Develop Genesis V0.3 from Codespaces: build Rust WASM, serve port 8000."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from functools import partial
@@ -9,18 +9,17 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-TARGET = ROOT / "target/wasm32-unknown-unknown/debug/invention.wasm"
-UNIVERSE = ROOT / "target/wasm32-unknown-unknown/debug/genesis.wasm"
+TARGET = ROOT / "target/wasm32-unknown-unknown/debug/society.wasm"
 
 def build():
-    print("\nBuilding Invention Lab...", flush=True)
-    result = subprocess.run(["cargo", "build", "--bin", "invention",
-                             "--target", "wasm32-unknown-unknown"], cwd=ROOT)
+    print("\nBuilding Genesis Emergent Societies...", flush=True)
+    result = subprocess.run(["cargo", "build", "--bin", "society",
+        "--target", "wasm32-unknown-unknown"], cwd=ROOT)
     if result.returncode == 0 and TARGET.exists():
         (WEB / "game.wasm").write_bytes(TARGET.read_bytes())
-        print("Open forwarded port 8000, refresh after changes.", flush=True)
+        print("Reload forwarded port 8000 to play.", flush=True)
     else:
-        print("Compilation failed; see Rust errors.", flush=True)
+        print("Build failed. Read Rust errors above.", flush=True)
 
 def signature():
     paths = [ROOT / "Cargo.toml", *(ROOT / "src").rglob("*.rs")]
@@ -30,7 +29,7 @@ if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", 8000),
         partial(SimpleHTTPRequestHandler, directory=str(WEB)))
     Thread(target=server.serve_forever, daemon=True).start()
-    print("Genesis Invention Lab: port 8000", flush=True)
+    print("Genesis societies: port 8000", flush=True)
     last = None
     try:
         while True:
