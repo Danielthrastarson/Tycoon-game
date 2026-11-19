@@ -43,6 +43,7 @@ pub struct StepReport {
     pub metabolic_cost: u64,
     pub harvested: u64,
     pub transferred: u64,
+    pub communications: u64,
     pub deaths: u32,
 }
 
@@ -57,6 +58,7 @@ pub struct World {
     pub ties: Vec<u8>,
     pub rules: Rules,
     pub cumulative_transferred: u64,
+    pub cumulative_communications: u64,
     pub cumulative_harvested: u64,
     pub cumulative_deaths: u32,
     rng: u64,
@@ -71,6 +73,7 @@ impl World {
             ties: vec![0; INITIAL_AGENTS * INITIAL_AGENTS],
             rules: Rules::default(),
             cumulative_transferred: 0,
+            cumulative_communications: 0,
             cumulative_harvested: 0,
             cumulative_deaths: 0,
             rng: seed,
@@ -239,6 +242,33 @@ impl World {
         }
     }
 
+
+    /// One local social contact per active agent and tick.
+    /// Communicating can transmit a remembered food location and builds
+    /// familiarity by repetition. No faction membership is assigned.
+    fn communicate(&mut self, i: usize, report: &mut StepReport) {
+        if !self.rules.communication || !self.agents[i].alive { return; }
+        let start = self.random(self.agents.len());
+        for offset in 0..self.agents.len() {
+            let j = (start + offset) % self.agents.len();
+            if i == j || !self.agents[j].alive { continue; }
+            let a = self.agents[i];
+            let b = self.agents[j];
+            if Self::distance((a.x, a.y), (b.x, b.y)) > 2 { continue; }
+            if a.known_food.is_some() && b.known_food.is_none() {
+                self.agents[j].known_food = a.known_food;
+            } else if b.known_food.is_some() && a.known_food.is_none() {
+                self.agents[i].known_food = b.known_food;
+            }
+            let ij = self.tie_at(i, j);
+            let ji = self.tie_at(j, i);
+            self.ties[ij] = self.ties[ij].saturating_add(3);
+            self.ties[ji] = self.ties[ji].saturating_add(3);
+            report.communications += 1;
+            break;
+        }
+    }
+
     /// A voluntary local surplus transfer. No group identifiers are read.
     fn share_pair(&mut self, giver: usize, receiver: usize, report: &mut StepReport) -> bool {
         if giver == receiver || !self.rules.sharing { return false; }
@@ -299,6 +329,8 @@ impl World {
             self.forage_and_move(i, &mut report);
         }
 
+        for &i in &order { self.communicate(i, &mut report); }
+
         for &i in &order {
             if !self.agents[i].alive || self.agents[i].energy <= 64 { continue; }
             // First eligible neighbour, rotated by seeded RNG; bounded local reach.
@@ -313,6 +345,7 @@ impl World {
             for score in &mut self.ties { *score = score.saturating_sub(1); }
         }
         self.cumulative_transferred += report.transferred;
+        self.cumulative_communications += report.communications;
         self.cumulative_harvested += report.harvested;
         self.cumulative_deaths += report.deaths;
         report
@@ -339,7 +372,7 @@ pub struct Observer {
 
 impl Observer {
     /// A candidate group is a connected component of THREE OR MORE *living*
-    /// agents with strong ties produced by repeated real transfers.
+    /// agents with strong ties produced by repeated local interactions.
     /// Match successive snapshots by membership overlap to maintain label IDs.
     pub fn observe(&mut self, world: &World) {
         let n = world.agents.len();
@@ -488,9 +521,10 @@ mod tests {
     }
 
     #[test]
-    fn disabling_sharing_prevents_ties() {
+    fn disabling_all_social_actions_prevents_ties() {
         let mut w = World::new(401);
         w.rules.sharing = false;
+        w.rules.communication = false;
         for _ in 0..150 { w.step(); }
         assert!(w.ties.iter().all(|score| *score == 0));
     }
