@@ -113,7 +113,8 @@ fn ellipse_around_group(world: &World, members: &[usize]) -> (Vec2, f32) {
 
 /// A purely player-facing objective. It NEVER modifies the simulation,
 /// agent decisions, or group observer labels.
-fn hold_progress(world: &World, previous: u32) -> u32 {
+fn hold_progress(world: &World, previous: u32, order_issued: bool) -> u32 {
+    if !order_issued { return 0; }
     let Some(squad) = &world.squad else { return 0; };
     if squad.order != Order::Hold { return 0; }
     let defenders = squad.members.iter().filter(|&&id| {
@@ -143,6 +144,7 @@ async fn main() {
     let mut notice = String::from("Tap the map to recruit eight nearby civilians.");
     let mut options = false;
     let mut held_ticks = 0_u32;
+    let mut hold_issued = false;
     let mut selected: Option<usize> = None;
     let mut image = Image::gen_image_color(SIDE as u16, SIDE as u16, BLACK);
     let texture = Texture2D::from_image(&image);
@@ -181,7 +183,7 @@ async fn main() {
             let mut steps = 0;
             while accumulator >= interval && steps < 4 {
                 world.step();
-                held_ticks = hold_progress(&world, held_ticks);
+                held_ticks = hold_progress(&world, held_ticks, hold_issued);
                 accumulator -= interval;
                 steps += 1;
                 if world.tick % 24 == 0 { observer.observe(&world); }
@@ -228,6 +230,7 @@ async fn main() {
                             pending = None;
                             running = false;
                             held_ticks = 0;
+                            hold_issued = false;
                             accumulator = 0.0;
                             center = vec2(64.0, 64.0);
                             zoom = 1.0;
@@ -250,6 +253,7 @@ async fn main() {
                         5 => {
                             if world.issue_order(Order::Retreat, (0, 0)) {
                                 held_ticks = 0;
+                                hold_issued = false;
                                 pending = None;
                                 running = true;
                                 notice = "RETREAT: squad returning to recruitment site.".into();
@@ -258,6 +262,7 @@ async fn main() {
                         6 => {
                             world.disband();
                             held_ticks = 0;
+                            hold_issued = false;
                             pending = None;
                             notice = "Soldiers disbanded; they resume civilian life.".into();
                         }
@@ -273,7 +278,7 @@ async fn main() {
                         0 => { options = false; notice = "Tap the map to recruit or command.".into(); }
                         1 => {
                             world.step();
-                            held_ticks = hold_progress(&world, held_ticks);
+                            held_ticks = hold_progress(&world, held_ticks, hold_issued);
                             if world.tick % 24 == 0 { observer.observe(&world); }
                             running = false;
                             notice = "Advanced one simulation tick.".into();
@@ -308,6 +313,7 @@ async fn main() {
                         Pending::Recruit => {
                             let count = world.recruit_nearest(target, 8);
                             held_ticks = 0;
+                            hold_issued = false;
                             if count > 0 {
                                 running = true;
                                 notice = format!("{} recruited. Tap the map to MOVE, or choose HOLD.", count);
@@ -316,6 +322,7 @@ async fn main() {
                         Pending::Move => {
                             if world.issue_order(Order::Move, target) {
                                 held_ticks = 0;
+                                hold_issued = false;
                                 running = true;
                                 notice = format!("MOVE to ({}, {}). Watch cyan soldiers.", target.0, target.1);
                             }
@@ -323,6 +330,7 @@ async fn main() {
                         Pending::Hold => {
                             if world.issue_order(Order::Hold, target) {
                                 held_ticks = 0;
+                                hold_issued = true;
                                 running = true;
                                 notice = format!("HOLD near ({}, {}). Outnumbered guards can lose.", target.0, target.1);
                             }
