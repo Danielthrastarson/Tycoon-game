@@ -466,6 +466,7 @@ async fn main() {
             layout_idx=(layout_idx+1)%layouts.len();
             battle=restart(seed,layout_idx);
             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
+            chosen=0;mode=Order::Hold;
             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
             floaters.clear();
             message="New siege. Order your squads and press PLAY.".into();
@@ -475,7 +476,18 @@ async fn main() {
             if let Some(p)=start {
                 if let Some(i)=squad_buttons.iter().position(|r|r.contains(p)) {
                     chosen=i;
-                    mode=Order::Move;
+                    mode=if battle.units[i].order==Order::Hold {
+                        Order::Hold
+                    } else {Order::Move};
+                    let u=battle.units[i];
+                    let view=world_view(camera,zoom,area);
+                    if (u.pos.0 as f32)<view.x+0.5 ||
+                        (u.pos.0 as f32)>view.x+view.w-0.5 ||
+                        (u.pos.1 as f32)<view.y+0.5 ||
+                        (u.pos.1 as f32)>view.y+view.h-0.5 {
+                        camera=vec2(u.pos.0 as f32,u.pos.1 as f32);
+                        clamp_camera(&mut camera,zoom,area);
+                    }
                     message=if i==0 {"MAIN selected — defend the crossing."}
                         else {"SCOUT selected — guard the rear or raid enemy supplies."}.into();
                 } else if let Some(i)=command_buttons.iter().position(|r|r.contains(p)) {
@@ -509,6 +521,7 @@ async fn main() {
                             layout_idx=(layout_idx+1)%layouts.len();
                             battle=restart(seed,layout_idx);
                             previous_positions=std::array::from_fn(|i|battle.units[i].pos);
+                            chosen=0;mode=Order::Hold;
                             running=false;accumulator=0.;camera=vec2(7.,4.);zoom=1.;
                             floaters.clear();
                             message="New siege. Order squads, then press PLAY.".into();
