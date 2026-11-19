@@ -194,7 +194,8 @@ fn map_render(b:&Battle,area:Rect,view:Rect,positions:[Vec2;4],
         draw_rectangle(p.x-6.,p.y-6.,12.,12.,rgba(16,29,38));
         draw_rectangle_lines(p.x-6.,p.y-6.,12.,12.,2.,color);
         text(if side==0 {"SUPPLY"} else {"ENEMY"},
-            p.x-19.,p.y+20.,9.,color);
+            (p.x-19.0).clamp(area.x+3.0,area.x+area.w-49.0),
+            p.y+20.0,9.0,color);
     }
     // Each squad has a legible supply indicator; colored corridor-status
     // links are not claimed to be pathfinding-geographical supply routes.
@@ -300,7 +301,7 @@ fn draw_minimap(b:&Battle,area:Rect,view:Rect) {
     let m=minimap_rect(area);
     draw_rectangle(m.x-5.0,m.y-5.0,m.w+10.0,m.h+24.0,
         Color::new(0.055,0.09,0.13,0.95));
-    text("OVERVIEW / TAP TO PAN",m.x,m.y-9.0,9.0,rgba(174,202,212));
+
     let cw=m.w/FIELD_WIDTH as f32;
     let ch=m.h/FIELD_HEIGHT as f32;
     for y in 0..FIELD_HEIGHT {
@@ -319,6 +320,7 @@ fn draw_minimap(b:&Battle,area:Rect,view:Rect) {
         m.x+view.x*cw,m.y+view.y*ch,
         view.w*cw,view.h*ch,1.4,WHITE);
     draw_rectangle_lines(m.x,m.y,m.w,m.h,1.0,rgba(124,151,164));
+    text("TAP TO PAN",m.x+3.0,m.y+m.h+14.0,10.0,rgba(185,217,230));
 }
 
 fn reset(seed:u64,layout:Layout)->Battle {
@@ -678,8 +680,11 @@ async fn main() {
         let textmsg=if message.chars().count()>59 {
             format!("{}...",message.chars().take(56).collect::<String>())
         } else{message.clone()};
-        draw_rectangle(0.,banner_y-23.,sw,28.,rgba(19,36,48));
-        text(&textmsg,10.,banner_y-4.,(sw/35.).clamp(10.,14.),WHITE);
+        let banner_x=if wide {control_x-2.0}else{0.0};
+        draw_rectangle(banner_x,banner_y-23.0,sw-banner_x,28.0,
+            rgba(19,36,48));
+        text(&textmsg,if wide {control_x}else{10.0},banner_y-4.0,
+            (sw/35.0).clamp(10.0,14.0),WHITE);
 
         if battle.ended {
             let box_w=(sw*0.86).min(390.);
