@@ -8,7 +8,7 @@
 
 use crate::society::{StepReport, World, MAX_ENERGY};
 
-pub const CARGO_CAPACITY: u8 = 8;
+pub const CARGO_CAPACITY: u8 = 4;
 pub const SEASON_LENGTH: u64 = 120;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -144,11 +144,12 @@ impl World {
             CarryPolicy::Disabled => false,
             CarryPolicy::Random => roll < 50,
             // 20% deliberate exploration; the rest follows experience.
-            // Scores initially equal zero, so carrying is a tentative default.
-            CarryPolicy::Learned => if roll < 20 {
+            // Untrained contexts begin with a 50/50 choice, avoiding a
+            // built-in bias toward carrying. Ten percent explore each action.
+            CarryPolicy::Learned => if roll < 20 || mind.carry_scores[context] == 0 {
                 roll % 2 == 0
             } else {
-                mind.carry_scores[context] >= 0
+                mind.carry_scores[context] > 0
             },
         };
         if collect {
