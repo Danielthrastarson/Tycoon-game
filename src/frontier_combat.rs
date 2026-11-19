@@ -1620,6 +1620,56 @@ mod tests {
     }
 
     #[test]
+    fn playable_siege_allows_real_player_victories_and_defeats() {
+        // No visual victory flag is invented. Both good and bad player
+        // instructions are resolved by the same mechanical objective clock,
+        // pathfinder and AI used in the V0.4.3 tactical laboratory.
+        let mut defended=0usize;
+        let mut lost=0usize;
+        for seed in 1000..1012 {
+            for layout in [Layout::Ridge,Layout::RiverFord,Layout::SplitValley] {
+                let mut good=Battle::new(seed,Scenario::MountainPass,
+                    Policy::Adaptive,false,CombatRules::FULL)
+                    .with_layout(layout)
+                    .with_opponent(OpponentPolicy::Counter);
+                let rear=good.breakthrough_target();
+                assert!(good.issue_player_order(0,Order::Hold,good.objective));
+                assert!(good.issue_player_order(1,Order::Move,rear));
+                for _ in 0..MAX_ROUNDS {
+                    if good.units[1].troops>0 && good.units[1].pos==rear {
+                        good.issue_player_order(1,Order::Hold,rear);
+                    }
+                    good.step_player();
+                    assert!(good.audit());
+                }
+                defended+=(good.winner==Some(0)) as usize;
+
+                let mut poor=Battle::new(seed,Scenario::MountainPass,
+                    Policy::Adaptive,false,CombatRules::FULL)
+                    .with_layout(layout)
+                    .with_opponent(OpponentPolicy::Counter);
+                assert!(poor.issue_player_order(0,Order::Retreat,
+                    poor.depots[0]));
+                assert!(poor.issue_player_order(1,Order::Hold,
+                    poor.units[1].pos));
+                poor.play(); // AI baseline is separately tested above
+                // The poor-play comparison must also use manual mode.
+                let mut manual=Battle::new(seed,Scenario::MountainPass,
+                    Policy::Adaptive,false,CombatRules::FULL)
+                    .with_layout(layout)
+                    .with_opponent(OpponentPolicy::Counter);
+                assert!(manual.issue_player_order(0,Order::Retreat,manual.depots[0]));
+                assert!(manual.issue_player_order(1,Order::Hold,manual.units[1].pos));
+                for _ in 0..MAX_ROUNDS {manual.step_player();}
+                assert!(manual.audit());
+                lost+=(manual.winner==Some(1)) as usize;
+            }
+        }
+        assert!(defended>0,"the physical siege must allow a human-commanded defense");
+        assert!(lost>0,"a poorly commanded force must be able to lose");
+    }
+
+    #[test]
     fn disabled_mechanics_do_not_mutate_the_original_game_world() {
         let original=crate::frontier::World::new(7733);
         let before=original.clone();
