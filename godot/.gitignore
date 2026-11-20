@@ -1,0 +1,5 @@
+.godot/
+export.cfg
+*.tmp
+scene_data/*.json
+!scene_data/.gitkeep
