@@ -1,0 +1,42 @@
+name: Genesis — Godot 3D Benchmark Validation
+
+on:
+  push:
+    branches: [feat/godot-3d-90fps-benchmark]
+  pull_request:
+    branches: [main]
+    paths:
+      - "godot/**"
+      - "src/bin/scene_export.rs"
+      - "src/scene.rs"
+      - "src/lib.rs"
+      - "docs/godot_90fps_benchmark.md"
+      - ".github/workflows/godot-benchmark.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify Rust simulation and scene exports
+        run: |
+          cargo test --lib
+          cargo test --bin scene_export
+          cargo run --bin scene_export -- godot/scene_data/frontier_demo.json
+      - name: Install Godot 4.5.2 headless editor
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/4.5.2-stable/Godot_v4.5.2-stable_linux.x86_64.zip" \
+            --output /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.5.2-stable_linux.x86_64
+      - name: Parse and import Godot project
+        run: |
+          /tmp/Godot_v4.5.2-stable_linux.x86_64 --headless --editor --path godot --quit
+      - name: Smoke test 3D scene startup
+        run: |
+          /tmp/Godot_v4.5.2-stable_linux.x86_64 --headless --path godot --quit-after 5
