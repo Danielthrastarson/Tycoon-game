@@ -13,3 +13,6 @@ pub mod frontier;
 pub mod frontier_combat;
 
 pub mod terrain_art;
+
+/// Read-only render and visualization projection; never a gameplay authority.
+pub mod scene;
