@@ -249,8 +249,8 @@ mod tests {
             matches!(e.id, SceneEntityId::Person(_))).count(), world.alive_count());
         assert!(!frame.entities.iter().any(|e| e.id == SceneEntityId::Person(0)));
         assert!(frame.entities.iter().any(|e| e.id == SceneEntityId::Camp(0)
-            && e.position == GridPosition { x: 7, y: 9 }
-            && e.details == SceneEntityDetails::Camp { stored: 23 }));
+            && matches!(e.position, GridPosition { x: 7, y: 9 })
+            && matches!(e.details, SceneEntityDetails::Camp { stored: 23 })));
         for (index, tile) in world.tiles.iter().enumerate() {
             assert_eq!(frame.map.tiles[index].resource,
                 (tile.capacity > 0).then_some(ResourceState {
